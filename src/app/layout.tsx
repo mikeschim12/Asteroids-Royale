@@ -47,8 +47,8 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
-        <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 sm:py-4 border-b border-black/10 bg-white/70 backdrop-blur">
+      <body className="min-h-full flex flex-col bg-background text-foreground font-mono">
+        <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 sm:py-4 border-b border-accent/25 bg-black/80 backdrop-blur">
           <Link href="/" className="font-mono text-base sm:text-lg tracking-wide">
             ROYALE<span className="text-accent">.ROCKS</span>
           </Link>

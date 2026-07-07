@@ -23,7 +23,7 @@ export default function CookieConsent() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 sm:right-auto z-50 max-w-sm rounded-2xl border border-black/10 bg-white p-4 shadow-lg">
+    <div className="fixed bottom-4 left-4 right-4 sm:right-auto z-50 max-w-sm rounded-md border border-accent/30 bg-black p-4 shadow-[0_0_20px_rgba(57,255,95,0.15)]">
       <p className="text-sm text-foreground/70">
         We use cookies to keep you signed in and understand basic site usage.
         See our{" "}
@@ -36,7 +36,7 @@ export default function CookieConsent() {
         <button
           type="button"
           onClick={accept}
-          className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent/90 transition-colors"
+          className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-black hover:bg-accent/90 transition-colors"
         >
           Got it
         </button>

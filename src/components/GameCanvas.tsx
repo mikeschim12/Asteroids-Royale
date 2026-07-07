@@ -18,18 +18,20 @@ export default function GameCanvas() {
     };
     resize();
     window.addEventListener("resize", resize);
+    window.addEventListener("orientationchange", resize);
 
     const stop = startGame(canvas);
 
     return () => {
       stop();
       window.removeEventListener("resize", resize);
+      window.removeEventListener("orientationchange", resize);
     };
   }, []);
 
   return (
-    <div className="flex-1 flex">
-      <canvas ref={canvasRef} className="w-full h-full block" />
+    <div className="relative flex-1 flex touch-none select-none overscroll-none">
+      <canvas ref={canvasRef} className="w-full h-full block touch-none" />
     </div>
   );
 }

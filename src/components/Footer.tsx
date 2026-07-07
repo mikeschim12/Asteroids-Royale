@@ -4,7 +4,7 @@ export default function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 px-4 sm:px-6 py-4 text-xs text-center text-foreground/40 border-t border-black/10">
+    <footer className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 px-4 sm:px-6 py-4 text-xs text-center text-foreground/40 border-t border-accent/20">
       <span>&copy; {year} Royale.Rocks. All rights reserved.</span>
       <span className="hidden sm:inline">&middot;</span>
       <div className="flex items-center gap-4">

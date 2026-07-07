@@ -9,7 +9,7 @@ export default async function AuthStatus() {
     return (
       <Link
         href="/signin"
-        className="rounded-full border border-black/10 px-4 py-1.5 text-sm hover:border-accent hover:text-accent transition-colors"
+        className="rounded-md border border-accent/30 px-4 py-1.5 text-sm hover:border-accent hover:text-accent transition-colors"
       >
         Sign in
       </Link>

@@ -26,7 +26,7 @@ export default async function SignInPage({
       >
         <button
           type="submit"
-          className="flex items-center gap-3 rounded-full border border-black/10 bg-white px-6 py-3 font-medium text-foreground shadow-sm hover:bg-accent-soft transition-colors"
+          className="flex items-center gap-3 rounded-md border border-accent/30 bg-white px-6 py-3 font-medium text-black shadow-[0_0_20px_rgba(57,255,95,0.1)] hover:bg-white/90 transition-colors"
         >
           <GoogleIcon />
           Continue with Google
