@@ -96,6 +96,11 @@ export class TouchControls {
     this.root.style.position = "fixed";
     this.root.style.inset = "0";
     this.root.style.pointerEvents = "none";
+    // `position: fixed` alone creates a stacking context, so the buttons'
+    // z-index only orders them against each other -- the root itself needs
+    // a high z-index too, or another page overlay with any z-index (e.g. a
+    // cookie banner) can still paint above this entire subtree.
+    this.root.style.zIndex = "2147483647";
     document.body.appendChild(this.root);
 
     if (!isTouchDevice()) {
@@ -136,5 +141,10 @@ export class TouchControls {
     for (const b of this.gameplayButtons) b.style.display = scene === "playing" ? "flex" : "none";
     for (const b of this.menuButtons) b.style.display = scene === "start" ? "flex" : "none";
     this.actionButton.textContent = scene === "start" ? "START" : scene === "gameover" ? "RESTART" : "FIRE";
+  }
+
+  /** Removes the touch-control overlay from the DOM. Call on unmount in SPA hosts. */
+  dispose() {
+    this.root.remove();
   }
 }
