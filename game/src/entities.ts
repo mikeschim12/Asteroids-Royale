@@ -1,6 +1,10 @@
 import { Vec2, add, scale, fromAngle } from "./vector";
 
 export interface Ship {
+  id: number;
+  isBot: boolean;
+  name: string;
+  color: string;
   pos: Vec2;
   vel: Vec2;
   angle: number;
@@ -11,9 +15,12 @@ export interface Ship {
   alive: boolean;
   lives: number;
   invulnerable: number;
+  kills: number;
+  score: number;
 }
 
 export interface Bullet {
+  ownerId: number;
   pos: Vec2;
   vel: Vec2;
   ttl: number;
@@ -50,8 +57,16 @@ export const SHIP_STARTING_LIVES = 3;
 export const RESPAWN_INVULN_TIME = 2.5;
 export const ASTEROID_SHAPE_POINTS = 10;
 
-export function createShip(pos: Vec2, lives: number = SHIP_STARTING_LIVES): Ship {
+export function createShip(
+  id: number,
+  pos: Vec2,
+  options: { isBot?: boolean; name?: string; color?: string; lives?: number } = {}
+): Ship {
   return {
+    id,
+    isBot: options.isBot ?? false,
+    name: options.name ?? (options.isBot ? `Bot ${id}` : "You"),
+    color: options.color ?? "#7fffd4",
     pos,
     vel: { x: 0, y: 0 },
     angle: -Math.PI / 2,
@@ -60,8 +75,10 @@ export function createShip(pos: Vec2, lives: number = SHIP_STARTING_LIVES): Ship
     maxHp: SHIP_MAX_HP,
     fireCooldown: 0,
     alive: true,
-    lives,
+    lives: options.lives ?? SHIP_STARTING_LIVES,
     invulnerable: RESPAWN_INVULN_TIME,
+    kills: 0,
+    score: 0,
   };
 }
 
