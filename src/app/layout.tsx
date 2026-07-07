@@ -51,7 +51,7 @@ export default function RootLayout({
         <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 sm:py-4 border-b border-accent/25 bg-black/80 backdrop-blur">
           <Link
             href="/"
-            className="flex items-center gap-1.5 sm:gap-2 font-mono text-sm sm:text-lg tracking-wide"
+            className="flex items-center gap-1.5 sm:gap-2 font-mono text-sm sm:text-lg tracking-tight"
           >
             <Image
               src="/logo-mark.png"
@@ -61,7 +61,7 @@ export default function RootLayout({
               className="h-6 w-6 sm:h-7 sm:w-7 rounded-sm"
               priority
             />
-            ROYALE<span className="text-accent">.ROCKS</span>
+            ROYALE<span className="text-accent -ml-1.5 sm:-ml-2">.ROCKS</span>
           </Link>
           <div className="flex items-center gap-2 sm:gap-6">
             <nav className="flex gap-2 sm:gap-6 text-sm text-foreground/70">
