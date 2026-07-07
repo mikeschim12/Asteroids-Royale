@@ -36,9 +36,14 @@ work independently:
   engine grows — extend `engine.ts` (and whatever modules it imports)
   instead of this component.
 
-- `src/app/play/page.tsx` renders `<GameCanvas />` at `/play`. Currently
-  `engine.ts` contains a placeholder animation; swap in the real game loop
-  there (feel free to break it into more files/modules under `src/game/`).
+- `src/app/play/page.tsx` renders `<GameCanvas />` at `/play`.
+
+The single-player prototype (ship movement, asteroids, shrinking zone,
+particles) lives in `src/game/` as plain modules (`entities.ts`, `vector.ts`,
+`zone.ts`, `input.ts`) with `engine.ts` wiring them up behind `startGame`.
+It was folded in from the standalone Vite prototype so the game runs inside
+the Next.js canvas without a second build/dev setup — logic is otherwise
+unchanged. Real-time multiplayer networking is planned but not yet built.
 
 ## Getting started
 
