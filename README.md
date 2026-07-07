@@ -44,8 +44,40 @@ as plain modules (`entities.ts`, `bot.ts`, `vector.ts`, `zone.ts`,
 `starfield.ts`, `sound.ts`, `input.ts`) with `engine.ts` wiring them up
 behind `startGame`. It's folded in from the standalone Vite prototype so
 the game runs inside the Next.js canvas without a second build/dev setup —
-logic is otherwise unchanged. Real-time multiplayer (real other players,
-not bots) is planned but not yet built.
+logic is otherwise unchanged.
+
+### TODO: real multiplayer isn't wired into the site yet
+
+The game side has built real PvP networking on the standalone prototype
+(`game/` on the `claude/asteroids-royale-game-n02sol` branch, not yet
+merged to `main`):
+
+- `game/src/simulation.ts` — pure, shared game-simulation step (`stepSimulation`),
+  used by both the local loop and the server so physics/collision only
+  live in one place.
+- `game/src/net.ts` — WebSocket client with dead-reckoning smoothing and
+  auto-reconnect (capped exponential backoff).
+- `game/server/` — the authoritative WebSocket server itself (Node + `ws`,
+  30Hz tick, in-memory match state). See `game/server/README.md` for how it
+  works and Railway deployment steps (**it needs its own always-on Railway
+  service** — separate from this Next.js site, root directory `game/server`).
+
+**What's still needed to make `royale.rocks/play` actually support online
+PvP** (same shape of work as the earlier bots/touch-controls ports into
+`src/game/`):
+
+1. Port `simulation.ts` and `net.ts` into `src/game/`, and update
+   `engine.ts` to support an "online" mode alongside the current local/bot
+   mode (keeping the `startGame(canvas): StopGame` contract intact for
+   `GameCanvas.tsx`).
+2. Add a `NEXT_PUBLIC_MULTIPLAYER_URL` env var (Next's equivalent of the
+   prototype's `VITE_MULTIPLAYER_URL`) pointing at the deployed `wss://...`
+   server address, read at build time.
+3. Deploy `game/server` as its own Railway service (see above) before step
+   2 has a real URL to point at.
+
+Whoever picks this up next — game side or website side — should update
+this note once it's done.
 
 ## Auth
 
