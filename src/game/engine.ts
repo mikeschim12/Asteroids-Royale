@@ -42,6 +42,11 @@ const DIFFICULTIES: { label: string; multiplier: number }[] = [
 ];
 const ASTEROID_SCORE: Record<1 | 2 | 3, number> = { 1: 100, 2: 50, 3: 20 };
 
+function uiFont(canvas: HTMLCanvasElement, px: number): string {
+  const scale = Math.min(1, Math.max(0.45, canvas.width / 900));
+  return `${Math.round(px * scale)}px monospace`;
+}
+
 export function startGame(canvas: HTMLCanvasElement): StopGame {
   const ctx = canvas.getContext("2d")!;
   const starfield = new Starfield(canvas.width, canvas.height);
@@ -414,7 +419,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
 
     if (s.isBot) {
       ctx.fillStyle = s.color;
-      ctx.font = "11px monospace";
+      ctx.font = uiFont(canvas, 11);
       ctx.textAlign = "center";
       ctx.fillText(s.name, s.pos.x, s.pos.y - s.radius - 8);
       ctx.textAlign = "left";
@@ -472,7 +477,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ctx.closePath();
     ctx.stroke();
     ctx.fillStyle = color;
-    ctx.font = "12px monospace";
+    ctx.font = uiFont(canvas, 12);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(PICKUP_LABELS[p.type], 0, 1);
@@ -496,23 +501,23 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   function drawStartScreen() {
     ctx.textAlign = "center";
     ctx.fillStyle = "#7fffd4";
-    ctx.font = "56px monospace";
+    ctx.font = uiFont(canvas, 56);
     ctx.fillText("ROYALE.ROCKS", canvas.width / 2, canvas.height / 2 - 100);
     ctx.fillStyle = "#fff";
-    ctx.font = "20px monospace";
+    ctx.font = uiFont(canvas, 20);
     ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 50);
     ctx.fillText("Last one standing wins", canvas.width / 2, canvas.height / 2 - 26);
 
-    ctx.font = "22px monospace";
+    ctx.font = uiFont(canvas, 22);
     ctx.fillStyle = "#ffe45d";
     ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 24);
     ctx.fillStyle = "#5da8ff";
     ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 54);
 
     ctx.fillStyle = "#fff";
-    ctx.font = "14px monospace";
+    ctx.font = uiFont(canvas, 14);
     ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 84);
-    ctx.font = "20px monospace";
+    ctx.font = uiFont(canvas, 20);
     ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 120);
     ctx.textAlign = "left";
   }
@@ -558,7 +563,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
 
     const aliveCount = ships.filter((s) => s.alive).length;
     ctx.fillStyle = "#fff";
-    ctx.font = "16px monospace";
+    ctx.font = uiFont(canvas, 16);
     ctx.fillText(`HP: ${Math.ceil(playerShip.hp)}`, 16, 24);
     ctx.fillText(`Lives: ${playerShip.lives}`, 16, 44);
     ctx.fillText(`Kills: ${playerShip.kills}`, 16, 64);
@@ -576,10 +581,10 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
 
     if (scene === "gameover") {
       ctx.textAlign = "center";
-      ctx.font = "48px monospace";
+      ctx.font = uiFont(canvas, 48);
       const won = winnerName === "You";
       ctx.fillText(won ? "VICTORY" : "YOU DIED", canvas.width / 2, canvas.height / 2);
-      ctx.font = "20px monospace";
+      ctx.font = uiFont(canvas, 20);
       ctx.fillText(`Winner: ${winnerName}`, canvas.width / 2, canvas.height / 2 + 36);
       ctx.fillText(`Kills: ${playerShip.kills}`, canvas.width / 2, canvas.height / 2 + 60);
       if (restartCooldown === 0) {
