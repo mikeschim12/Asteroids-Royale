@@ -38,12 +38,14 @@ work independently:
 
 - `src/app/play/page.tsx` renders `<GameCanvas />` at `/play`.
 
-The single-player prototype (ship movement, asteroids, shrinking zone,
-particles) lives in `src/game/` as plain modules (`entities.ts`, `vector.ts`,
-`zone.ts`, `input.ts`) with `engine.ts` wiring them up behind `startGame`.
-It was folded in from the standalone Vite prototype so the game runs inside
-the Next.js canvas without a second build/dev setup — logic is otherwise
-unchanged. Real-time multiplayer networking is planned but not yet built.
+The prototype (ship movement, 5 AI bots, shrinking zone, asteroids,
+particles, screen shake, procedural audio, starfield) lives in `src/game/`
+as plain modules (`entities.ts`, `bot.ts`, `vector.ts`, `zone.ts`,
+`starfield.ts`, `sound.ts`, `input.ts`) with `engine.ts` wiring them up
+behind `startGame`. It's folded in from the standalone Vite prototype so
+the game runs inside the Next.js canvas without a second build/dev setup —
+logic is otherwise unchanged. Real-time multiplayer (real other players,
+not bots) is planned but not yet built.
 
 ## Auth
 
