@@ -2,9 +2,10 @@ import { InputState } from "./input";
 import { Starfield } from "./starfield";
 import { TouchControls } from "./touchControls";
 import { computeBotIntent } from "./bot";
+import { NetworkClient } from "./net";
 import * as sound from "./sound";
 import { Ship, Asteroid, Particle, Pickup, createShip, spawnExplosion, PICKUP_RADIUS } from "./entities";
-import { GameState, ShipIntent, createInitialGameState, stepSimulation, randomSpawnPos } from "./simulation";
+import { GameState, Scene, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos } from "./simulation";
 import { add, scale, fromAngle } from "./vector";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -32,13 +33,26 @@ const DIFFICULTIES: { label: string; multiplier: number }[] = [
   { label: "Normal", multiplier: 1.0 },
   { label: "Hard", multiplier: 1.3 },
 ];
+const MULTIPLAYER_URL = (import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_MULTIPLAYER_URL ?? "ws://localhost:8080";
 
 let selectedBotCount = 5;
 let selectedDifficultyIndex = 1;
+let mode: "local" | "online" = "local";
 
-let uiScene: "start" | "playing" | "gameover" = "start";
+// --- Local (single-device, vs bots) mode state ---
+let uiScene: Scene = "start";
 let state: GameState;
 let playerShip: Ship;
+
+// --- Online (real multiplayer) mode state ---
+type OnlineStatus = "idle" | "connecting" | "connected" | "error";
+let onlineStatus: OnlineStatus = "idle";
+let netClient: NetworkClient | null = null;
+let onlineState: GameState | null = null;
+let onlineConnectedCount = 0;
+let onlineYourId = -1;
+
+// --- Shared client-only cosmetics ---
 let particles: Particle[] = [];
 let shakeTime = 0;
 let shakeMagnitude = 0;
@@ -47,6 +61,37 @@ let thrustSoundCooldown = 0;
 function shake(magnitude: number, duration: number) {
   shakeMagnitude = Math.max(shakeMagnitude, magnitude);
   shakeTime = Math.max(shakeTime, duration);
+}
+
+function spawnThrustParticle(ship: Ship) {
+  const behind = ship.angle + Math.PI;
+  particles.push({
+    pos: add(ship.pos, scale(fromAngle(behind), ship.radius * 0.8)),
+    vel: add(scale(ship.vel, 0.3), scale(fromAngle(behind + (Math.random() - 0.5) * 0.6), 60)),
+    ttl: 0.25,
+    maxTtl: 0.25,
+    color: "#ff9d4d",
+    radius: 2,
+  });
+}
+
+function applySimEvents(events: SimEvent[], myShipId: number) {
+  for (const event of events) {
+    if (event.type === "shipExplosion") {
+      particles.push(...spawnExplosion(event.pos, event.color, 24));
+      sound.playExplosion(3);
+      if (event.shipId === myShipId) shake(10, 0.4);
+    } else if (event.type === "asteroidExplosion") {
+      particles.push(...spawnExplosion(event.pos, "#ccc", 12));
+      sound.playExplosion(event.size);
+      shake(event.size * 1.5, 0.15);
+    } else if (event.type === "hit") {
+      sound.playHit();
+      if (event.shipId === myShipId) shake(6, 0.2);
+    } else if (event.type === "pickup") {
+      sound.playPickup();
+    }
+  }
 }
 
 function resetGame() {
@@ -67,12 +112,51 @@ function resetGame() {
   uiScene = "playing";
 }
 
+function connectOnline() {
+  if (onlineStatus === "connecting" || onlineStatus === "connected") return;
+  onlineStatus = "connecting";
+  particles = [];
+  netClient = new NetworkClient();
+  netClient.connect(MULTIPLAYER_URL, {
+    onWelcome(yourShipId) {
+      onlineYourId = yourShipId;
+      onlineStatus = "connected";
+    },
+    onState(newState, events, connectedCount) {
+      const prevBullets = onlineState ? onlineState.bullets.filter((b) => b.ownerId === onlineYourId).length : 0;
+      const nextBullets = newState.bullets.filter((b) => b.ownerId === onlineYourId).length;
+      if (nextBullets > prevBullets) sound.playFire();
+
+      for (const ship of newState.ships) {
+        if (!ship.alive || !ship.thrusting) continue;
+        spawnThrustParticle(ship);
+        if (ship.id === onlineYourId) {
+          thrustSoundCooldown = Math.max(0, thrustSoundCooldown - 0.05);
+          if (thrustSoundCooldown === 0) {
+            sound.playThrust();
+            thrustSoundCooldown = 0.1;
+          }
+        }
+      }
+
+      applySimEvents(events, onlineYourId);
+      onlineState = newState;
+      onlineConnectedCount = connectedCount;
+    },
+    onClose() {
+      onlineStatus = "idle";
+      onlineState = null;
+      netClient = null;
+    },
+    onError() {
+      onlineStatus = "error";
+    },
+  });
+}
+
 let lastTime = performance.now();
 
-function update(dt: number) {
-  shakeTime = Math.max(0, shakeTime - dt);
-  if (shakeTime === 0) shakeMagnitude = 0;
-
+function updateLocal(dt: number) {
   if (uiScene === "start") {
     if (input.consumeJustPressed("ArrowLeft") || input.consumeJustPressed("KeyA")) {
       selectedBotCount = Math.max(MIN_BOTS, selectedBotCount - 1);
@@ -121,15 +205,7 @@ function update(dt: number) {
 
   for (const ship of state.ships) {
     if (!ship.alive || !ship.thrusting) continue;
-    const behind = ship.angle + Math.PI;
-    particles.push({
-      pos: add(ship.pos, scale(fromAngle(behind), ship.radius * 0.8)),
-      vel: add(scale(ship.vel, 0.3), scale(fromAngle(behind + (Math.random() - 0.5) * 0.6), 60)),
-      ttl: 0.25,
-      maxTtl: 0.25,
-      color: "#ff9d4d",
-      radius: 2,
-    });
+    spawnThrustParticle(ship);
     if (ship === playerShip) {
       thrustSoundCooldown = Math.max(0, thrustSoundCooldown - dt);
       if (thrustSoundCooldown === 0) {
@@ -139,21 +215,40 @@ function update(dt: number) {
     }
   }
 
-  for (const event of events) {
-    if (event.type === "shipExplosion") {
-      particles.push(...spawnExplosion(event.pos, event.color, 24));
-      sound.playExplosion(3);
-      if (event.shipId === playerShip.id) shake(10, 0.4);
-    } else if (event.type === "asteroidExplosion") {
-      particles.push(...spawnExplosion(event.pos, "#ccc", 12));
-      sound.playExplosion(event.size);
-      shake(event.size * 1.5, 0.15);
-    } else if (event.type === "hit") {
-      sound.playHit();
-      if (event.shipId === playerShip.id) shake(6, 0.2);
-    } else if (event.type === "pickup") {
-      sound.playPickup();
+  applySimEvents(events, playerShip.id);
+
+  uiScene = state.scene;
+}
+
+function updateOnline() {
+  if (onlineStatus === "idle") {
+    if (input.fire) {
+      sound.resumeAudio();
+      connectOnline();
     }
+    return;
+  }
+  if (onlineStatus !== "connected" || !onlineState) return;
+
+  // The server drives match restarts on its own timer; the client just
+  // keeps streaming input regardless of scene (waiting/playing/gameover).
+  netClient?.sendInput({ rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire });
+}
+
+function update(dt: number) {
+  shakeTime = Math.max(0, shakeTime - dt);
+  if (shakeTime === 0) shakeMagnitude = 0;
+
+  const canSwitchMode = (mode === "local" && uiScene === "start") || (mode === "online" && (onlineStatus === "idle" || onlineStatus === "error"));
+  if (canSwitchMode && input.consumeJustPressed("KeyM")) {
+    mode = mode === "local" ? "online" : "local";
+    onlineStatus = "idle";
+  }
+
+  if (mode === "local") {
+    updateLocal(dt);
+  } else {
+    updateOnline();
   }
 
   for (const p of particles) {
@@ -161,11 +256,9 @@ function update(dt: number) {
     p.ttl -= dt;
   }
   particles = particles.filter((p) => p.ttl > 0);
-
-  uiScene = state.scene;
 }
 
-function drawShip(s: Ship, isThrusting: boolean) {
+function drawShip(s: Ship) {
   if (s.invulnerable > 0 && Math.floor(s.invulnerable * 10) % 2 === 0) return;
   if (s.shieldTime > 0) {
     ctx.save();
@@ -179,7 +272,7 @@ function drawShip(s: Ship, isThrusting: boolean) {
   ctx.save();
   ctx.translate(s.pos.x, s.pos.y);
   ctx.rotate(s.angle);
-  if (isThrusting) {
+  if (s.thrusting) {
     ctx.strokeStyle = "#ff9d4d";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -198,13 +291,11 @@ function drawShip(s: Ship, isThrusting: boolean) {
   ctx.stroke();
   ctx.restore();
 
-  if (s.isBot) {
-    ctx.fillStyle = s.color;
-    ctx.font = "11px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(s.name, s.pos.x, s.pos.y - s.radius - 8);
-    ctx.textAlign = "left";
-  }
+  ctx.fillStyle = s.color;
+  ctx.font = "11px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(s.name, s.pos.x, s.pos.y - s.radius - 8);
+  ctx.textAlign = "left";
 }
 
 function drawAsteroid(a: Asteroid) {
@@ -283,28 +374,67 @@ function drawStartScreen() {
   ctx.textAlign = "center";
   ctx.fillStyle = "#7fffd4";
   ctx.font = "56px monospace";
-  ctx.fillText("ROYALE.ROCKS", canvas.width / 2, canvas.height / 2 - 100);
+  ctx.fillText("ROYALE.ROCKS", canvas.width / 2, canvas.height / 2 - 120);
   ctx.fillStyle = "#fff";
   ctx.font = "20px monospace";
-  ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 50);
-  ctx.fillText("Last one standing wins", canvas.width / 2, canvas.height / 2 - 26);
+  ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 70);
 
-  ctx.font = "22px monospace";
-  ctx.fillStyle = "#ffe45d";
-  ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 24);
-  ctx.fillStyle = "#5da8ff";
-  ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 54);
-
+  ctx.font = "24px monospace";
+  ctx.fillStyle = mode === "local" ? "#7fffd4" : "#888";
+  const localLabel = mode === "local" ? "> LOCAL (vs Bots) <" : "  LOCAL (vs Bots)  ";
+  ctx.fillText(localLabel, canvas.width / 2, canvas.height / 2 - 30);
+  ctx.fillStyle = mode === "online" ? "#7fffd4" : "#888";
+  const onlineLabel = mode === "online" ? "> ONLINE (PvP) <" : "  ONLINE (PvP)  ";
+  ctx.fillText(onlineLabel, canvas.width / 2, canvas.height / 2 - 2);
   ctx.fillStyle = "#fff";
   ctx.font = "14px monospace";
-  ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 84);
+  ctx.fillText("Press M to switch mode", canvas.width / 2, canvas.height / 2 + 22);
+
+  if (mode === "local") {
+    ctx.font = "22px monospace";
+    ctx.fillStyle = "#ffe45d";
+    ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 56);
+    ctx.fillStyle = "#5da8ff";
+    ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 84);
+    ctx.fillStyle = "#fff";
+    ctx.font = "14px monospace";
+    ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 112);
+  } else {
+    ctx.font = "16px monospace";
+    ctx.fillStyle = "#fff";
+    ctx.fillText("Last one standing wins. Real opponents only.", canvas.width / 2, canvas.height / 2 + 60);
+  }
+
   ctx.font = "20px monospace";
-  ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 120);
+  ctx.fillStyle = "#fff";
+  ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 150);
+  ctx.textAlign = "left";
+}
+
+function drawOnlineStatusScreen() {
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#7fffd4";
+  ctx.font = "32px monospace";
+  if (onlineStatus === "connecting") {
+    ctx.fillText("CONNECTING...", canvas.width / 2, canvas.height / 2);
+  } else if (onlineStatus === "error") {
+    ctx.fillStyle = "#ff5d5d";
+    ctx.fillText("CONNECTION FAILED", canvas.width / 2, canvas.height / 2);
+    ctx.fillStyle = "#fff";
+    ctx.font = "16px monospace";
+    ctx.fillText("Press SPACE to retry, or M for local play", canvas.width / 2, canvas.height / 2 + 36);
+  } else if (onlineState?.scene === "waiting") {
+    ctx.fillText("WAITING FOR OPPONENTS", canvas.width / 2, canvas.height / 2);
+    ctx.fillStyle = "#fff";
+    ctx.font = "16px monospace";
+    ctx.fillText(`${onlineConnectedCount} connected -- need at least 2 to start`, canvas.width / 2, canvas.height / 2 + 36);
+  }
   ctx.textAlign = "left";
 }
 
 function draw() {
-  touchControls.sync(uiScene);
+  const activeScene: Scene = mode === "local" ? uiScene : onlineState?.scene ?? "start";
+  touchControls.sync(onlineStatus === "connecting" || onlineStatus === "error" ? "start" : activeScene);
   ctx.save();
   if (shakeTime > 0) {
     const dx = (Math.random() - 0.5) * shakeMagnitude;
@@ -316,8 +446,27 @@ function draw() {
   ctx.fillRect(-20, -20, canvas.width + 40, canvas.height + 40);
   starfield.draw(ctx);
 
-  if (uiScene === "start") {
+  if (mode === "local" && uiScene === "start") {
     drawStartScreen();
+    ctx.restore();
+    return;
+  }
+  if (mode === "online" && (onlineStatus === "idle" || onlineStatus === "connecting" || onlineStatus === "error")) {
+    if (onlineStatus === "idle") drawStartScreen();
+    else drawOnlineStatusScreen();
+    ctx.restore();
+    return;
+  }
+
+  const world = mode === "local" ? state : onlineState;
+  if (!world) {
+    ctx.restore();
+    return;
+  }
+  const me = mode === "local" ? playerShip : world.ships.find((s) => s.id === onlineYourId);
+
+  if (world.scene === "waiting") {
+    drawOnlineStatusScreen();
     ctx.restore();
     return;
   }
@@ -325,52 +474,56 @@ function draw() {
   ctx.strokeStyle = "rgba(127, 255, 212, 0.4)";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(state.zone.center.x, state.zone.center.y, state.zone.radius, 0, Math.PI * 2);
+  ctx.arc(world.zone.center.x, world.zone.center.y, world.zone.radius, 0, Math.PI * 2);
   ctx.stroke();
 
-  for (const ship of state.ships) {
-    if (ship.alive) drawShip(ship, ship === playerShip && input.thrust);
+  for (const ship of world.ships) {
+    if (ship.alive) drawShip(ship);
   }
 
   ctx.fillStyle = "#fff";
-  for (const b of state.bullets) {
+  for (const b of world.bullets) {
     ctx.beginPath();
     ctx.arc(b.pos.x, b.pos.y, 2, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  for (const a of state.asteroids) drawAsteroid(a);
-  for (const p of state.pickups) drawPickup(p);
+  for (const a of world.asteroids) drawAsteroid(a);
+  for (const p of world.pickups) drawPickup(p);
   drawParticles();
 
-  const aliveCount = state.ships.filter((s) => s.alive).length;
-  ctx.fillStyle = "#fff";
-  ctx.font = "16px monospace";
-  ctx.fillText(`HP: ${Math.ceil(playerShip.hp)}`, 16, 24);
-  ctx.fillText(`Lives: ${playerShip.lives}`, 16, 44);
-  ctx.fillText(`Kills: ${playerShip.kills}`, 16, 64);
-  ctx.fillText(`Score: ${playerShip.score}`, 16, 84);
-  ctx.fillText(`Zone: ${Math.ceil(state.zone.radius)}`, 16, 104);
-  ctx.fillText(`Alive: ${aliveCount}/${state.ships.length}`, 16, 124);
-  if (playerShip.shieldTime > 0) {
-    ctx.fillStyle = "#5da8ff";
-    ctx.fillText(`Shield: ${playerShip.shieldTime.toFixed(1)}s`, 16, 144);
-  }
-  if (playerShip.rapidFireTime > 0) {
-    ctx.fillStyle = "#ffe45d";
-    ctx.fillText(`Rapid Fire: ${playerShip.rapidFireTime.toFixed(1)}s`, 16, playerShip.shieldTime > 0 ? 164 : 144);
+  if (me) {
+    const aliveCount = world.ships.filter((s) => s.alive).length;
+    ctx.fillStyle = "#fff";
+    ctx.font = "16px monospace";
+    ctx.fillText(`HP: ${Math.ceil(me.hp)}`, 16, 24);
+    ctx.fillText(`Lives: ${me.lives}`, 16, 44);
+    ctx.fillText(`Kills: ${me.kills}`, 16, 64);
+    ctx.fillText(`Score: ${me.score}`, 16, 84);
+    ctx.fillText(`Zone: ${Math.ceil(world.zone.radius)}`, 16, 104);
+    ctx.fillText(`Alive: ${aliveCount}/${world.ships.length}`, 16, 124);
+    if (me.shieldTime > 0) {
+      ctx.fillStyle = "#5da8ff";
+      ctx.fillText(`Shield: ${me.shieldTime.toFixed(1)}s`, 16, 144);
+    }
+    if (me.rapidFireTime > 0) {
+      ctx.fillStyle = "#ffe45d";
+      ctx.fillText(`Rapid Fire: ${me.rapidFireTime.toFixed(1)}s`, 16, me.shieldTime > 0 ? 164 : 144);
+    }
   }
 
-  if (uiScene === "gameover") {
+  if (world.scene === "gameover") {
     ctx.textAlign = "center";
     ctx.font = "48px monospace";
-    const won = state.winnerName === "You";
-    ctx.fillText(won ? "VICTORY" : "YOU DIED", canvas.width / 2, canvas.height / 2);
+    const won = me ? world.winnerName === me.name : false;
+    ctx.fillText(won ? "VICTORY" : "GAME OVER", canvas.width / 2, canvas.height / 2);
     ctx.font = "20px monospace";
-    ctx.fillText(`Winner: ${state.winnerName}`, canvas.width / 2, canvas.height / 2 + 36);
-    ctx.fillText(`Kills: ${playerShip.kills}`, canvas.width / 2, canvas.height / 2 + 60);
-    if (state.restartCooldown === 0) {
+    ctx.fillText(`Winner: ${world.winnerName}`, canvas.width / 2, canvas.height / 2 + 36);
+    if (me) ctx.fillText(`Kills: ${me.kills}`, canvas.width / 2, canvas.height / 2 + 60);
+    if (mode === "local" && world.restartCooldown === 0) {
       ctx.fillText("Press SPACE to restart", canvas.width / 2, canvas.height / 2 + 92);
+    } else if (mode === "online") {
+      ctx.fillText("Next match starting soon...", canvas.width / 2, canvas.height / 2 + 92);
     }
     ctx.textAlign = "left";
   }

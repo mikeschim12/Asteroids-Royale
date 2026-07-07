@@ -24,7 +24,7 @@ import {
   REPAIR_AMOUNT,
 } from "./entities";
 
-export type Scene = "start" | "playing" | "gameover";
+export type Scene = "start" | "playing" | "gameover" | "waiting";
 
 export interface ShipIntent {
   rotateLeft: boolean;
@@ -102,6 +102,22 @@ function applyPickup(ship: Ship, type: PickupType) {
   }
 }
 
+/**
+ * Checks whether the match has been decided (0 or 1 ships left alive) and,
+ * if so, transitions the state to "gameover". Called after any kill, and
+ * also needs to be called by hosts (e.g. a multiplayer server) after a
+ * ship is removed outright, like on player disconnect.
+ */
+export function checkWinCondition(state: GameState): void {
+  if (state.scene !== "playing") return;
+  const aliveShips = state.ships.filter((s) => s.alive);
+  if (aliveShips.length <= 1) {
+    state.scene = "gameover";
+    state.restartCooldown = 1;
+    state.winnerName = aliveShips.length === 1 ? aliveShips[0].name : "No one";
+  }
+}
+
 function killShip(state: GameState, ship: Ship, killerId: number | null, events: SimEvent[]) {
   events.push({ type: "shipExplosion", pos: { ...ship.pos }, color: ship.color, shipId: ship.id });
   ship.lives -= 1;
@@ -120,12 +136,7 @@ function killShip(state: GameState, ship: Ship, killerId: number | null, events:
     ship.invulnerable = RESPAWN_INVULN_TIME;
   }
 
-  const aliveShips = state.ships.filter((s) => s.alive);
-  if (aliveShips.length <= 1 && state.scene === "playing") {
-    state.scene = "gameover";
-    state.restartCooldown = 1;
-    state.winnerName = aliveShips.length === 1 ? aliveShips[0].name : "No one";
-  }
+  checkWinCondition(state);
 }
 
 function applyShipControl(state: GameState, ship: Ship, intent: ShipIntent, dt: number) {
