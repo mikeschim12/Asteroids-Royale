@@ -9,7 +9,7 @@ export default async function AuthStatus() {
     return (
       <Link
         href="/signin"
-        className="rounded-full border border-white/15 px-4 py-1.5 text-sm hover:border-amber-400 hover:text-amber-400 transition-colors"
+        className="rounded-full border border-black/10 px-4 py-1.5 text-sm hover:border-accent hover:text-accent transition-colors"
       >
         Sign in
       </Link>
@@ -27,7 +27,7 @@ export default async function AuthStatus() {
           className="rounded-full"
         />
       )}
-      <span className="hidden sm:inline text-sm text-white/70">
+      <span className="hidden sm:inline text-sm text-foreground/70">
         {session.user.name}
       </span>
       <form
@@ -38,7 +38,7 @@ export default async function AuthStatus() {
       >
         <button
           type="submit"
-          className="text-sm text-white/50 hover:text-amber-400 transition-colors"
+          className="text-sm text-foreground/50 hover:text-accent transition-colors"
         >
           Sign out
         </button>

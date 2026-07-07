@@ -1,7 +1,7 @@
 import { signIn } from "@/auth";
 
 export const metadata = {
-  title: "Sign in — Asteroids Royale",
+  title: "Sign in — Royale.Rocks",
 };
 
 export default async function SignInPage({
@@ -14,7 +14,7 @@ export default async function SignInPage({
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 py-24 text-center">
       <h1 className="text-3xl font-mono tracking-tight">Sign in to play</h1>
-      <p className="max-w-sm text-white/60">
+      <p className="max-w-sm text-foreground/60">
         Sign in with Google to save your scores and appear on the
         leaderboard. You can still play without an account.
       </p>
@@ -26,7 +26,7 @@ export default async function SignInPage({
       >
         <button
           type="submit"
-          className="flex items-center gap-3 rounded-full border border-white/15 bg-white px-6 py-3 font-medium text-black hover:bg-white/90 transition-colors"
+          className="flex items-center gap-3 rounded-full border border-black/10 bg-white px-6 py-3 font-medium text-foreground shadow-sm hover:bg-accent-soft transition-colors"
         >
           <GoogleIcon />
           Continue with Google

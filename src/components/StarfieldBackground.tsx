@@ -50,7 +50,10 @@ export default function StarfieldBackground() {
     const speed = 0.35;
 
     const draw = () => {
-      ctx.fillStyle = "#05050a";
+      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      gradient.addColorStop(0, "#eaf2ff");
+      gradient.addColorStop(1, "#f4f8fd");
+      ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, width, height);
 
       const cx = width / 2;
@@ -68,7 +71,7 @@ export default function StarfieldBackground() {
 
         const size = Math.max(0.4, (1 - star.z / width) * 2.2);
         const alpha = Math.min(1, (1 - star.z / width) * 1.3);
-        ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.fillStyle = `rgba(47, 123, 246, ${alpha})`;
         ctx.fillRect(x, y, size, size);
       }
 
@@ -87,7 +90,7 @@ export default function StarfieldBackground() {
     <canvas
       ref={canvasRef}
       aria-hidden
-      className="pointer-events-none absolute inset-0 h-full w-full opacity-70"
+      className="pointer-events-none absolute inset-0 h-full w-full opacity-90"
     />
   );
 }

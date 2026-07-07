@@ -17,19 +17,19 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://royale.rocks"),
-  title: "Asteroids Royale",
+  title: "Royale.Rocks",
   description:
-    "The arcade classic, reborn as a battle royale. Dodge rocks, dodge ships, and outlast 5 AI bots inside a shrinking arena.",
+    "The arcade classic, reborn as a battle royale. Dodge rocks, dodge ships, and outlast AI bots inside a shrinking arena.",
   openGraph: {
-    title: "Asteroids Royale",
+    title: "Royale.Rocks",
     description:
       "The arcade classic, reborn as a battle royale. Play free in your browser.",
     url: "https://royale.rocks",
-    siteName: "Asteroids Royale",
+    siteName: "Royale.Rocks",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Asteroids Royale",
+    title: "Royale.Rocks",
     description:
       "The arcade classic, reborn as a battle royale. Play free in your browser.",
   },
@@ -46,16 +46,16 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <header className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/20 backdrop-blur">
+        <header className="flex items-center justify-between px-6 py-4 border-b border-black/10 bg-white/70 backdrop-blur">
           <Link href="/" className="font-mono text-lg tracking-wide">
-            ASTEROIDS <span className="text-amber-400">ROYALE</span>
+            ROYALE<span className="text-accent">.ROCKS</span>
           </Link>
           <div className="flex items-center gap-6">
-            <nav className="flex gap-6 text-sm text-white/70">
-              <Link href="/" className="hover:text-amber-400">
+            <nav className="flex gap-6 text-sm text-foreground/70">
+              <Link href="/" className="hover:text-accent">
                 Home
               </Link>
-              <Link href="/play" className="hover:text-amber-400">
+              <Link href="/play" className="hover:text-accent">
                 Play
               </Link>
             </nav>
@@ -65,8 +65,8 @@ export default function RootLayout({
           </div>
         </header>
         <main className="flex-1 flex flex-col">{children}</main>
-        <footer className="px-6 py-4 text-xs text-center text-white/40 border-t border-white/10">
-          Asteroids Royale
+        <footer className="px-6 py-4 text-xs text-center text-foreground/40 border-t border-black/10">
+          Royale.Rocks
         </footer>
       </body>
     </html>
