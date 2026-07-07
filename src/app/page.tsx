@@ -1,28 +1,46 @@
 import Link from "next/link";
 import StarfieldBackground from "@/components/StarfieldBackground";
+import OrbitRings from "@/components/OrbitRings";
+import {
+  BotIcon,
+  PulseIcon,
+  DebrisIcon,
+  MoveIcon,
+  StickIcon,
+  CrosshairIcon,
+  SparkleIcon,
+} from "@/components/icons";
 
 const features = [
   {
-    title: "AI bots, 1 winner",
-    description:
-      "Drop into a free-for-all against bots that hunt ships and asteroids alike. Last one flying takes it.",
+    icon: BotIcon,
+    title: "Dynamic AI & Single-Pilot Triumph",
+    description: (
+      <>
+        Face <span className="text-accent">intelligent, hunting bots</span>{" "}
+        that adapt and clear the field. Secure victory as the last human
+        pilot.
+      </>
+    ),
   },
   {
-    title: "Shrinking safe zone",
+    icon: PulseIcon,
+    title: "Pulsating Arena Collapse",
     description:
-      "The playable ring closes in over time — stall outside it and you'll bleed HP fast. Nowhere to hide forever.",
+      "A shrinking gravitational anomaly forces all pilots together. Survive outside or suffer rapid shield failure.",
   },
   {
-    title: "Procedural asteroid fields",
+    icon: DebrisIcon,
+    title: "Reactive Space Debris",
     description:
-      "Jagged, irregular rocks split when shot and scatter unpredictably. Every match reads differently.",
+      "Fragmenting rocks that split on impact, scattering in realistic vectors. Strategic movement is paramount.",
   },
 ];
 
 const controls = [
-  { keys: "W / ↑", action: "Thrust" },
-  { keys: "A D / ← →", action: "Rotate" },
-  { keys: "Space", action: "Fire" },
+  { icon: MoveIcon, label: "Precision movement", sub: "WASD / Arrows" },
+  { icon: StickIcon, label: "Movement & Aiming Stick", sub: "Touch controls" },
+  { icon: CrosshairIcon, label: "Aim and fire", sub: "Space / Fire button" },
 ];
 
 export default function Home() {
@@ -30,6 +48,7 @@ export default function Home() {
     <div className="flex-1 flex flex-col">
       <section className="relative flex-1 flex flex-col items-center justify-center gap-8 px-6 py-32 text-center overflow-hidden">
         <StarfieldBackground />
+        <OrbitRings />
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(57,255,95,0.1),_transparent_60%)]"
@@ -38,6 +57,7 @@ export default function Home() {
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background"
         />
+        <SparkleIcon className="pointer-events-none absolute bottom-16 right-10 h-6 w-6 text-foreground/30 hidden sm:block" />
 
         <p className="relative font-mono text-xs tracking-[0.3em] text-accent">
           IN-BROWSER · NO INSTALL · FREE-FOR-ALL
@@ -46,8 +66,10 @@ export default function Home() {
           ROYALE<span className="text-foreground">.ROCKS</span>
         </h1>
         <p className="relative max-w-xl text-foreground/70 text-lg">
-          The arcade classic, reborn as a battle royale. Dodge rocks, dodge
-          ships, and outlast AI bots inside a shrinking arena.
+          The definitive <span className="text-accent">space classic</span>,
+          reborn as an <span className="text-accent">asteroid battle royale</span>.
+          Evade debris, master movement, and eliminate all threats inside an
+          intense, <span className="text-accent">shrinking arena</span>.
         </p>
         <div className="relative flex flex-col sm:flex-row items-center gap-4">
           <Link
@@ -77,7 +99,8 @@ export default function Home() {
               key={feature.title}
               className="rounded-md border border-accent/20 bg-accent-soft p-6 transition-colors hover:border-accent/60"
             >
-              <h2 className="font-mono text-sm tracking-wide text-accent">
+              <feature.icon className="h-6 w-6 text-accent" />
+              <h2 className="mt-3 font-mono text-sm tracking-wide text-accent">
                 {feature.title}
               </h2>
               <p className="mt-3 text-sm text-foreground/60">
@@ -96,11 +119,12 @@ export default function Home() {
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             {controls.map((c) => (
               <div
-                key={c.action}
-                className="rounded-md border border-accent/20 bg-accent-soft px-4 py-4"
+                key={c.label}
+                className="flex flex-col items-center gap-2 rounded-md border border-accent/20 bg-accent-soft px-4 py-5"
               >
-                <div className="font-mono text-accent">{c.keys}</div>
-                <div className="mt-1 text-sm text-foreground/60">{c.action}</div>
+                <c.icon className="h-6 w-6 text-accent" />
+                <div className="font-mono text-sm text-accent">{c.label}</div>
+                <div className="text-xs text-foreground/50">{c.sub}</div>
               </div>
             ))}
           </div>
