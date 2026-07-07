@@ -19,6 +19,8 @@ export interface Ship {
   score: number;
   shieldTime: number;
   rapidFireTime: number;
+  /** Transient: true for ticks where thrust was applied. Rendering-only hint, not gameplay state. */
+  thrusting: boolean;
 }
 
 export interface Bullet {
@@ -99,6 +101,7 @@ export function createShip(
     score: 0,
     shieldTime: 0,
     rapidFireTime: 0,
+    thrusting: false,
   };
 }
 

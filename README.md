@@ -38,14 +38,22 @@ work independently:
 
 - `src/app/play/page.tsx` renders `<GameCanvas />` at `/play`.
 
-The prototype (ship movement, 5 AI bots, shrinking zone, asteroids,
+The prototype (ship movement, AI bots, shrinking zone, asteroids,
 particles, screen shake, procedural audio, starfield) lives in `src/game/`
 as plain modules (`entities.ts`, `bot.ts`, `vector.ts`, `zone.ts`,
-`starfield.ts`, `sound.ts`, `input.ts`) with `engine.ts` wiring them up
-behind `startGame`. It's folded in from the standalone Vite prototype so
-the game runs inside the Next.js canvas without a second build/dev setup —
-logic is otherwise unchanged. Real-time multiplayer (real other players,
-not bots) is planned but not yet built.
+`starfield.ts`, `sound.ts`, `input.ts`, `simulation.ts`) with `engine.ts`
+wiring them up behind `startGame`. It's folded in from the standalone Vite
+prototype so the game runs inside the Next.js canvas without a second
+build/dev setup — logic is otherwise unchanged.
+
+### Real-time multiplayer
+
+`/play` now has a mode toggle (press M) between **Local (vs Bots)** and
+**Online (PvP)**. Online mode connects to a separate WebSocket server —
+see `server/README.md` for how it works and how to run/deploy it. The
+client reads its address from `NEXT_PUBLIC_MULTIPLAYER_URL` (defaults to
+`ws://localhost:8080` if unset), which needs to be set to the deployed
+server's `wss://...` address for online mode to work in production.
 
 ## Auth
 
