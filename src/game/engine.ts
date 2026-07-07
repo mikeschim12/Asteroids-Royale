@@ -1,35 +1,12 @@
 import { InputState } from "./input";
-import { ShrinkingZone } from "./zone";
 import { Starfield } from "./starfield";
 import { TouchControls } from "./touchControls";
-import { computeBotIntent, BotIntent } from "./bot";
+import { computeBotIntent } from "./bot";
+import { NetworkClient } from "./net";
 import * as sound from "./sound";
-import {
-  Ship,
-  Bullet,
-  Asteroid,
-  Particle,
-  Pickup,
-  createShip,
-  spawnAsteroid,
-  splitAsteroid,
-  spawnExplosion,
-  spawnPickup,
-  SHIP_THRUST,
-  SHIP_ROTATION_SPEED,
-  SHIP_DRAG,
-  BULLET_SPEED,
-  BULLET_TTL,
-  FIRE_INTERVAL,
-  RESPAWN_INVULN_TIME,
-  PICKUP_RADIUS,
-  PICKUP_DROP_CHANCE,
-  SHIELD_DURATION,
-  RAPID_FIRE_DURATION,
-  RAPID_FIRE_MULTIPLIER,
-  REPAIR_AMOUNT,
-} from "./entities";
-import { add, scale, fromAngle, distance, wrap } from "./vector";
+import { Ship, Asteroid, Particle, Pickup, createShip, spawnExplosion, PICKUP_RADIUS } from "./entities";
+import { GameState, Scene, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos } from "./simulation";
+import { add, scale, fromAngle } from "./vector";
 
 export type StopGame = () => void;
 
@@ -41,7 +18,11 @@ const DIFFICULTIES: { label: string; multiplier: number }[] = [
   { label: "Normal", multiplier: 1.0 },
   { label: "Hard", multiplier: 1.3 },
 ];
-const ASTEROID_SCORE: Record<1 | 2 | 3, number> = { 1: 100, 2: 50, 3: 20 };
+const MULTIPLAYER_URL = process.env.NEXT_PUBLIC_MULTIPLAYER_URL ?? "ws://localhost:8080";
+const MAX_EXTRAPOLATION_MS = 150;
+/** Approximate server tick duration, only used to throttle the thrust sound in online mode. */
+const APPROX_SERVER_DT = 1 / 30;
+const MAX_AUTO_RECONNECT_ATTEMPTS = 6;
 
 function uiFont(canvas: HTMLCanvasElement, px: number): string {
   const scale = Math.min(1, Math.max(0.45, canvas.width / 900));
@@ -54,165 +35,164 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   const input = new InputState();
   const touchControls = new TouchControls(canvas.parentElement ?? document.body);
 
-  type Scene = "start" | "playing" | "gameover";
-  let scene: Scene = "start";
-
   let selectedBotCount = 5;
   let selectedDifficultyIndex = 1;
+  let mode: "local" | "online" = "local";
 
-  let nextShipId = 0;
+  // --- Local (single-device, vs bots) mode state ---
+  let uiScene: Scene = "start";
+  let state: GameState;
   let playerShip: Ship;
-  let ships: Ship[];
-  let bullets: Bullet[];
-  let asteroids: Asteroid[];
-  let particles: Particle[];
-  let pickups: Pickup[];
-  let zone: ShrinkingZone;
-  let restartCooldown = 0;
+
+  // --- Online (real multiplayer) mode state ---
+  type OnlineStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
+  let onlineStatus: OnlineStatus = "idle";
+  let netClient: NetworkClient | null = null;
+  let onlineState: GameState | null = null;
+  let onlineConnectedCount = 0;
+  let onlineYourId = -1;
+  let onlineWorldWidth = 1600;
+  let onlineWorldHeight = 900;
+  let onlineStateReceivedAt = 0;
+
+  // --- Shared client-only cosmetics ---
+  let particles: Particle[] = [];
   let shakeTime = 0;
   let shakeMagnitude = 0;
   let thrustSoundCooldown = 0;
-  let winnerName: string | null = null;
-
-  function spawnWaveAsteroids(count: number) {
-    const result: Asteroid[] = [];
-    for (let i = 0; i < count; i++) {
-      const edge = Math.random() < 0.5 ? 0 : canvas.width;
-      result.push(spawnAsteroid({ x: edge, y: Math.random() * canvas.height }, 3));
-    }
-    return result;
-  }
 
   function shake(magnitude: number, duration: number) {
     shakeMagnitude = Math.max(shakeMagnitude, magnitude);
     shakeTime = Math.max(shakeTime, duration);
   }
 
-  function isProtected(ship: Ship): boolean {
-    return ship.invulnerable > 0 || ship.shieldTime > 0;
+  function spawnThrustParticle(ship: Ship) {
+    const behind = ship.angle + Math.PI;
+    particles.push({
+      pos: add(ship.pos, scale(fromAngle(behind), ship.radius * 0.8)),
+      vel: add(scale(ship.vel, 0.3), scale(fromAngle(behind + (Math.random() - 0.5) * 0.6), 60)),
+      ttl: 0.25,
+      maxTtl: 0.25,
+      color: "#ff9d4d",
+      radius: 2,
+    });
   }
 
-  function applyPickup(ship: Ship, type: Pickup["type"]) {
-    if (type === "shield") {
-      ship.shieldTime = Math.max(ship.shieldTime, SHIELD_DURATION);
-    } else if (type === "rapid") {
-      ship.rapidFireTime = Math.max(ship.rapidFireTime, RAPID_FIRE_DURATION);
-    } else {
-      ship.hp = Math.min(ship.maxHp, ship.hp + REPAIR_AMOUNT);
+  function applySimEvents(events: SimEvent[], myShipId: number) {
+    for (const event of events) {
+      if (event.type === "shipExplosion") {
+        particles.push(...spawnExplosion(event.pos, event.color, 24));
+        sound.playExplosion(3);
+        if (event.shipId === myShipId) shake(10, 0.4);
+      } else if (event.type === "asteroidExplosion") {
+        particles.push(...spawnExplosion(event.pos, "#ccc", 12));
+        sound.playExplosion(event.size);
+        shake(event.size * 1.5, 0.15);
+      } else if (event.type === "hit") {
+        sound.playHit();
+        if (event.shipId === myShipId) shake(6, 0.2);
+      } else if (event.type === "pickup") {
+        sound.playPickup();
+      }
     }
-    sound.playPickup();
-  }
-
-  function randomSpawnPos(): { x: number; y: number } {
-    const margin = 100;
-    return {
-      x: margin + Math.random() * Math.max(1, canvas.width - margin * 2),
-      y: margin + Math.random() * Math.max(1, canvas.height - margin * 2),
-    };
   }
 
   function resetGame() {
-    nextShipId = 0;
+    let nextShipId = 0;
     playerShip = createShip(nextShipId++, { x: canvas.width / 2, y: canvas.height / 2 }, { name: "You", color: "#7fffd4" });
-    ships = [playerShip];
+    const ships = [playerShip];
     for (let i = 0; i < selectedBotCount; i++) {
       ships.push(
-        createShip(nextShipId++, randomSpawnPos(), {
+        createShip(nextShipId++, randomSpawnPos(canvas.width, canvas.height), {
           isBot: true,
           name: `Bot ${i + 1}`,
           color: BOT_COLORS[i % BOT_COLORS.length],
         })
       );
     }
-    bullets = [];
-    asteroids = spawnWaveAsteroids(8);
+    state = createInitialGameState(canvas.width, canvas.height, ships);
     particles = [];
-    pickups = [];
-    scene = "playing";
-    winnerName = null;
-    zone = new ShrinkingZone(
-      { x: canvas.width / 2, y: canvas.height / 2 },
-      Math.max(canvas.width, canvas.height) * 0.6,
-      140,
-      1.2
-    );
+    uiScene = "playing";
   }
 
-  function killShip(ship: Ship, killerId: number | null) {
-    particles.push(...spawnExplosion(ship.pos, ship.color, 24));
-    sound.playExplosion(3);
-    if (ship === playerShip) shake(10, 0.4);
-    ship.lives -= 1;
+  function connectOnline() {
+    if (onlineStatus === "connecting" || onlineStatus === "connected") return;
+    onlineStatus = "connecting";
+    particles = [];
+    netClient = new NetworkClient();
+    netClient.connect(MULTIPLAYER_URL, {
+      onWelcome(yourShipId, worldWidth, worldHeight) {
+        onlineYourId = yourShipId;
+        onlineWorldWidth = worldWidth;
+        onlineWorldHeight = worldHeight;
+        onlineStatus = "connected";
+      },
+      onState(newState, events, connectedCount) {
+        const prevBullets = onlineState ? onlineState.bullets.filter((b) => b.ownerId === onlineYourId).length : 0;
+        const nextBullets = newState.bullets.filter((b) => b.ownerId === onlineYourId).length;
+        if (nextBullets > prevBullets) sound.playFire();
 
-    if (killerId !== null) {
-      const killer = ships.find((s) => s.id === killerId);
-      if (killer && killer.id !== ship.id) killer.kills += 1;
-    }
-
-    if (ship.lives <= 0) {
-      ship.alive = false;
-    } else {
-      ship.pos = randomSpawnPos();
-      ship.vel = { x: 0, y: 0 };
-      ship.hp = ship.maxHp;
-      ship.invulnerable = RESPAWN_INVULN_TIME;
-    }
-
-    const aliveShips = ships.filter((s) => s.alive);
-    if (aliveShips.length <= 1 && scene === "playing") {
-      scene = "gameover";
-      restartCooldown = 1;
-      winnerName = aliveShips.length === 1 ? aliveShips[0].name : "No one";
-    }
-  }
-
-  function applyShipControl(ship: Ship, intent: { rotateLeft: boolean; rotateRight: boolean; thrust: boolean; fire: boolean }, dt: number) {
-    if (intent.rotateLeft) ship.angle -= SHIP_ROTATION_SPEED * dt;
-    if (intent.rotateRight) ship.angle += SHIP_ROTATION_SPEED * dt;
-    if (intent.thrust) {
-      const thrustVec = scale(fromAngle(ship.angle), SHIP_THRUST * dt);
-      ship.vel = add(ship.vel, thrustVec);
-      const behind = ship.angle + Math.PI;
-      particles.push({
-        pos: add(ship.pos, scale(fromAngle(behind), ship.radius * 0.8)),
-        vel: add(scale(ship.vel, 0.3), scale(fromAngle(behind + (Math.random() - 0.5) * 0.6), 60)),
-        ttl: 0.25,
-        maxTtl: 0.25,
-        color: "#ff9d4d",
-        radius: 2,
-      });
-      if (ship === playerShip) {
-        thrustSoundCooldown = Math.max(0, thrustSoundCooldown - dt);
-        if (thrustSoundCooldown === 0) {
-          sound.playThrust();
-          thrustSoundCooldown = 0.1;
+        for (const ship of newState.ships) {
+          if (!ship.alive || !ship.thrusting) continue;
+          spawnThrustParticle(ship);
+          if (ship.id === onlineYourId) {
+            thrustSoundCooldown = Math.max(0, thrustSoundCooldown - APPROX_SERVER_DT);
+            if (thrustSoundCooldown === 0) {
+              sound.playThrust();
+              thrustSoundCooldown = 0.1;
+            }
+          }
         }
-      }
-    }
-    ship.vel = scale(ship.vel, SHIP_DRAG);
-    ship.pos = wrap(add(ship.pos, scale(ship.vel, dt)), canvas.width, canvas.height);
 
-    ship.invulnerable = Math.max(0, ship.invulnerable - dt);
-    ship.shieldTime = Math.max(0, ship.shieldTime - dt);
-    ship.rapidFireTime = Math.max(0, ship.rapidFireTime - dt);
-    ship.fireCooldown = Math.max(0, ship.fireCooldown - dt);
-    if (intent.fire && ship.fireCooldown === 0) {
-      ship.fireCooldown = ship.rapidFireTime > 0 ? FIRE_INTERVAL * RAPID_FIRE_MULTIPLIER : FIRE_INTERVAL;
-      bullets.push({
-        ownerId: ship.id,
-        pos: add(ship.pos, scale(fromAngle(ship.angle), ship.radius)),
-        vel: add(ship.vel, scale(fromAngle(ship.angle), BULLET_SPEED)),
-        ttl: BULLET_TTL,
-      });
-      if (ship === playerShip) sound.playFire();
-    }
+        applySimEvents(events, onlineYourId);
+        onlineState = newState;
+        onlineConnectedCount = connectedCount;
+        onlineStateReceivedAt = performance.now();
+      },
+      onReconnecting(attempt) {
+        if (attempt > MAX_AUTO_RECONNECT_ATTEMPTS) {
+          netClient?.disconnect();
+          netClient = null;
+          onlineState = null;
+          onlineStatus = "error";
+          return;
+        }
+        onlineStatus = "reconnecting";
+      },
+      onClose() {
+        onlineStatus = "idle";
+        onlineState = null;
+        netClient = null;
+      },
+      onError() {
+        // The 'close' event fires right after 'error' for the same socket and
+        // decides the actual status transition (reconnecting vs error).
+      },
+    });
   }
 
-  function update(dt: number) {
-    shakeTime = Math.max(0, shakeTime - dt);
-    if (shakeTime === 0) shakeMagnitude = 0;
+  const MAX_EXTRAPOLATION_S = MAX_EXTRAPOLATION_MS / 1000;
 
-    if (scene === "start") {
+  /**
+   * The server only broadcasts state at its tick rate, which looks choppy if
+   * rendered as-is at 60fps. Between snapshots, dead-reckon every object's
+   * position forward using its last known velocity so online mode's motion
+   * looks as smooth as local mode's. Capped so a delayed/missed snapshot
+   * doesn't cause runaway drift.
+   */
+  function extrapolateWorld(base: GameState, elapsedMs: number): GameState {
+    const dt = Math.min(elapsedMs / 1000, MAX_EXTRAPOLATION_S);
+    if (dt <= 0) return base;
+    return {
+      ...base,
+      ships: base.ships.map((s) => (s.alive ? { ...s, pos: add(s.pos, scale(s.vel, dt)) } : s)),
+      bullets: base.bullets.map((b) => ({ ...b, pos: add(b.pos, scale(b.vel, dt)) })),
+      asteroids: base.asteroids.map((a) => ({ ...a, pos: add(a.pos, scale(a.vel, dt)), rotation: a.rotation + a.rotationSpeed * dt })),
+    };
+  }
+
+  function updateLocal(dt: number) {
+    if (uiScene === "start") {
       if (input.consumeJustPressed("ArrowLeft") || input.consumeJustPressed("KeyA")) {
         selectedBotCount = Math.max(MIN_BOTS, selectedBotCount - 1);
       }
@@ -232,46 +212,83 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
       return;
     }
 
-    if (scene === "gameover") {
-      restartCooldown = Math.max(0, restartCooldown - dt);
-      if (restartCooldown === 0 && input.fire) {
+    if (uiScene === "gameover") {
+      state.restartCooldown = Math.max(0, state.restartCooldown - dt);
+      if (state.restartCooldown === 0 && input.fire) {
         resetGame();
       }
       return;
     }
 
-    for (const ship of ships) {
+    const intents = new Map<number, ShipIntent>();
+    for (const ship of state.ships) {
       if (!ship.alive) continue;
-      let intent: BotIntent;
       if (ship.isBot) {
-        intent = computeBotIntent(ship, ships, asteroids, bullets, pickups, zone, DIFFICULTIES[selectedDifficultyIndex].multiplier);
+        intents.set(
+          ship.id,
+          computeBotIntent(ship, state.ships, state.asteroids, state.bullets, state.pickups, state.zone, DIFFICULTIES[selectedDifficultyIndex].multiplier)
+        );
       } else {
-        intent = { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire };
+        intents.set(ship.id, { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire });
       }
-      applyShipControl(ship, intent, dt);
+    }
 
-      if (!isProtected(ship) && zone.isOutside(ship.pos)) {
-        ship.hp -= zone.damagePerSecond * dt;
-        if (ship.hp <= 0) {
-          ship.hp = 0;
-          killShip(ship, null);
+    const playerBulletsBefore = state.bullets.filter((b) => b.ownerId === playerShip.id).length;
+    const events = stepSimulation(state, intents, dt);
+    const playerBulletsAfter = state.bullets.filter((b) => b.ownerId === playerShip.id).length;
+    if (playerBulletsAfter > playerBulletsBefore) sound.playFire();
+
+    for (const ship of state.ships) {
+      if (!ship.alive || !ship.thrusting) continue;
+      spawnThrustParticle(ship);
+      if (ship === playerShip) {
+        thrustSoundCooldown = Math.max(0, thrustSoundCooldown - dt);
+        if (thrustSoundCooldown === 0) {
+          sound.playThrust();
+          thrustSoundCooldown = 0.1;
         }
       }
     }
 
-    zone.update(dt);
+    applySimEvents(events, playerShip.id);
 
-    for (const b of bullets) {
-      b.pos = wrap(add(b.pos, scale(b.vel, dt)), canvas.width, canvas.height);
-      b.ttl -= dt;
+    uiScene = state.scene;
+  }
+
+  function updateOnline() {
+    if (onlineStatus === "idle") {
+      if (input.fire) {
+        sound.resumeAudio();
+        connectOnline();
+      }
+      return;
     }
-    for (let i = bullets.length - 1; i >= 0; i--) {
-      if (bullets[i].ttl <= 0) bullets.splice(i, 1);
+    if (onlineStatus !== "connected" || !onlineState) return;
+
+    // The server drives match restarts on its own timer; the client just
+    // keeps streaming input regardless of scene (waiting/playing/gameover).
+    netClient?.sendInput({ rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire });
+  }
+
+  function update(dt: number) {
+    shakeTime = Math.max(0, shakeTime - dt);
+    if (shakeTime === 0) shakeMagnitude = 0;
+
+    const canSwitchMode =
+      (mode === "local" && uiScene === "start") ||
+      (mode === "online" && (onlineStatus === "idle" || onlineStatus === "error" || onlineStatus === "reconnecting"));
+    if (canSwitchMode && input.consumeJustPressed("KeyM")) {
+      mode = mode === "local" ? "online" : "local";
+      netClient?.disconnect();
+      netClient = null;
+      onlineState = null;
+      onlineStatus = "idle";
     }
 
-    for (const a of asteroids) {
-      a.pos = wrap(add(a.pos, scale(a.vel, dt)), canvas.width, canvas.height);
-      a.rotation += a.rotationSpeed * dt;
+    if (mode === "local") {
+      updateLocal(dt);
+    } else {
+      updateOnline();
     }
 
     for (const p of particles) {
@@ -279,114 +296,9 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
       p.ttl -= dt;
     }
     particles = particles.filter((p) => p.ttl > 0);
-
-    // Bullets vs ships
-    for (let i = bullets.length - 1; i >= 0; i--) {
-      const b = bullets[i];
-      for (const ship of ships) {
-        if (!ship.alive || ship.id === b.ownerId || isProtected(ship)) continue;
-        if (distance(b.pos, ship.pos) < ship.radius) {
-          bullets.splice(i, 1);
-          ship.hp -= 34;
-          sound.playHit();
-          if (ship === playerShip) shake(6, 0.2);
-          if (ship.hp <= 0) {
-            ship.hp = 0;
-            killShip(ship, b.ownerId);
-          }
-          break;
-        }
-      }
-    }
-
-    // Bullets vs asteroids
-    const survivingAsteroids: Asteroid[] = [];
-    for (const a of asteroids) {
-      let shooterId: number | null = null;
-      for (let i = bullets.length - 1; i >= 0; i--) {
-        if (distance(bullets[i].pos, a.pos) < a.radius) {
-          shooterId = bullets[i].ownerId;
-          bullets.splice(i, 1);
-          break;
-        }
-      }
-      if (shooterId !== null) {
-        const shooter = ships.find((s) => s.id === shooterId);
-        if (shooter) shooter.score += ASTEROID_SCORE[a.size];
-        particles.push(...spawnExplosion(a.pos, "#ccc", 12));
-        sound.playExplosion(a.size);
-        shake(a.size * 1.5, 0.15);
-        if (Math.random() < PICKUP_DROP_CHANCE) {
-          pickups.push(spawnPickup(a.pos));
-        }
-        survivingAsteroids.push(...splitAsteroid(a));
-      } else {
-        survivingAsteroids.push(a);
-      }
-    }
-    asteroids = survivingAsteroids;
-
-    if (asteroids.length === 0) {
-      asteroids = spawnWaveAsteroids(8);
-    }
-
-    for (const p of pickups) {
-      p.ttl -= dt;
-    }
-    pickups = pickups.filter((p) => p.ttl > 0);
-
-    // Ships vs pickups
-    for (const ship of ships) {
-      if (!ship.alive) continue;
-      for (let i = pickups.length - 1; i >= 0; i--) {
-        if (distance(ship.pos, pickups[i].pos) < ship.radius + PICKUP_RADIUS) {
-          applyPickup(ship, pickups[i].type);
-          pickups.splice(i, 1);
-        }
-      }
-    }
-
-    // Ships vs asteroids
-    for (const ship of ships) {
-      if (!ship.alive || isProtected(ship)) continue;
-      for (const a of asteroids) {
-        if (distance(ship.pos, a.pos) < a.radius + ship.radius) {
-          ship.hp -= 34;
-          sound.playHit();
-          if (ship === playerShip) shake(6, 0.2);
-          if (ship.hp <= 0) {
-            ship.hp = 0;
-            killShip(ship, null);
-          }
-          break;
-        }
-      }
-    }
-
-    // Ship vs ship collision
-    for (let i = 0; i < ships.length; i++) {
-      for (let j = i + 1; j < ships.length; j++) {
-        const a = ships[i];
-        const b = ships[j];
-        if (!a.alive || !b.alive || isProtected(a) || isProtected(b)) continue;
-        if (distance(a.pos, b.pos) < a.radius + b.radius) {
-          a.hp -= 20;
-          b.hp -= 20;
-          if (a === playerShip || b === playerShip) shake(6, 0.2);
-          if (a.hp <= 0) {
-            a.hp = 0;
-            killShip(a, b.id);
-          }
-          if (b.hp <= 0) {
-            b.hp = 0;
-            killShip(b, a.id);
-          }
-        }
-      }
-    }
   }
 
-  function drawShip(s: Ship, isThrusting: boolean) {
+  function drawShip(s: Ship) {
     if (s.invulnerable > 0 && Math.floor(s.invulnerable * 10) % 2 === 0) return;
     if (s.shieldTime > 0) {
       ctx.save();
@@ -400,7 +312,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ctx.save();
     ctx.translate(s.pos.x, s.pos.y);
     ctx.rotate(s.angle);
-    if (isThrusting) {
+    if (s.thrusting) {
       ctx.strokeStyle = "#ff9d4d";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -419,13 +331,11 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ctx.stroke();
     ctx.restore();
 
-    if (s.isBot) {
-      ctx.fillStyle = s.color;
-      ctx.font = uiFont(canvas, 11);
-      ctx.textAlign = "center";
-      ctx.fillText(s.name, s.pos.x, s.pos.y - s.radius - 8);
-      ctx.textAlign = "left";
-    }
+    ctx.fillStyle = s.color;
+    ctx.font = uiFont(canvas, 11);
+    ctx.textAlign = "center";
+    ctx.fillText(s.name, s.pos.x, s.pos.y - s.radius - 8);
+    ctx.textAlign = "left";
   }
 
   function drawAsteroid(a: Asteroid) {
@@ -504,28 +414,74 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ctx.textAlign = "center";
     ctx.fillStyle = "#7fffd4";
     ctx.font = uiFont(canvas, 56);
-    ctx.fillText("ROYALE.ROCKS", canvas.width / 2, canvas.height / 2 - 100);
+    ctx.fillText("ROYALE.ROCKS", canvas.width / 2, canvas.height / 2 - 120);
     ctx.fillStyle = "#fff";
     ctx.font = uiFont(canvas, 20);
-    ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 50);
-    ctx.fillText("Last one standing wins", canvas.width / 2, canvas.height / 2 - 26);
+    ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 70);
 
-    ctx.font = uiFont(canvas, 22);
-    ctx.fillStyle = "#ffe45d";
-    ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 24);
-    ctx.fillStyle = "#5da8ff";
-    ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 54);
-
+    ctx.font = uiFont(canvas, 24);
+    ctx.fillStyle = mode === "local" ? "#7fffd4" : "#888";
+    const localLabel = mode === "local" ? "> LOCAL (vs Bots) <" : "  LOCAL (vs Bots)  ";
+    ctx.fillText(localLabel, canvas.width / 2, canvas.height / 2 - 30);
+    ctx.fillStyle = mode === "online" ? "#7fffd4" : "#888";
+    const onlineLabel = mode === "online" ? "> ONLINE (PvP) <" : "  ONLINE (PvP)  ";
+    ctx.fillText(onlineLabel, canvas.width / 2, canvas.height / 2 - 2);
     ctx.fillStyle = "#fff";
     ctx.font = uiFont(canvas, 14);
-    ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 84);
+    ctx.fillText("Press M to switch mode", canvas.width / 2, canvas.height / 2 + 22);
+
+    if (mode === "local") {
+      ctx.font = uiFont(canvas, 22);
+      ctx.fillStyle = "#ffe45d";
+      ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 56);
+      ctx.fillStyle = "#5da8ff";
+      ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 84);
+      ctx.fillStyle = "#fff";
+      ctx.font = uiFont(canvas, 14);
+      ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 112);
+    } else {
+      ctx.font = uiFont(canvas, 16);
+      ctx.fillStyle = "#fff";
+      ctx.fillText("Last one standing wins. Real opponents only.", canvas.width / 2, canvas.height / 2 + 60);
+    }
+
     ctx.font = uiFont(canvas, 20);
-    ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 120);
+    ctx.fillStyle = "#fff";
+    ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 150);
+    ctx.textAlign = "left";
+  }
+
+  function drawOnlineStatusScreen() {
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#7fffd4";
+    ctx.font = uiFont(canvas, 32);
+    if (onlineStatus === "connecting") {
+      ctx.fillText("CONNECTING...", canvas.width / 2, canvas.height / 2);
+    } else if (onlineStatus === "reconnecting") {
+      ctx.fillStyle = "#ffe45d";
+      ctx.fillText("CONNECTION LOST -- RECONNECTING...", canvas.width / 2, canvas.height / 2);
+      ctx.fillStyle = "#fff";
+      ctx.font = uiFont(canvas, 16);
+      ctx.fillText("Press M for local play", canvas.width / 2, canvas.height / 2 + 36);
+    } else if (onlineStatus === "error") {
+      ctx.fillStyle = "#ff5d5d";
+      ctx.fillText("CONNECTION FAILED", canvas.width / 2, canvas.height / 2);
+      ctx.fillStyle = "#fff";
+      ctx.font = uiFont(canvas, 16);
+      ctx.fillText("Press SPACE to retry, or M for local play", canvas.width / 2, canvas.height / 2 + 36);
+    } else if (onlineState?.scene === "waiting") {
+      ctx.fillText("WAITING FOR OPPONENTS", canvas.width / 2, canvas.height / 2);
+      ctx.fillStyle = "#fff";
+      ctx.font = uiFont(canvas, 16);
+      ctx.fillText(`${onlineConnectedCount} connected -- need at least 2 to start`, canvas.width / 2, canvas.height / 2 + 36);
+    }
     ctx.textAlign = "left";
   }
 
   function draw() {
-    touchControls.sync(scene);
+    const activeScene: Scene = mode === "local" ? uiScene : onlineState?.scene ?? "start";
+    const isTransientOnlineScreen = onlineStatus === "connecting" || onlineStatus === "reconnecting" || onlineStatus === "error";
+    touchControls.sync(isTransientOnlineScreen ? "start" : activeScene);
     ctx.save();
     if (shakeTime > 0) {
       const dx = (Math.random() - 0.5) * shakeMagnitude;
@@ -537,61 +493,104 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ctx.fillRect(-20, -20, canvas.width + 40, canvas.height + 40);
     starfield.draw(ctx);
 
-    if (scene === "start") {
+    if (mode === "local" && uiScene === "start") {
       drawStartScreen();
       ctx.restore();
       return;
     }
+    if (mode === "online" && onlineStatus !== "connected") {
+      if (onlineStatus === "idle") drawStartScreen();
+      else drawOnlineStatusScreen();
+      ctx.restore();
+      return;
+    }
+
+    const world =
+      mode === "local"
+        ? state
+        : onlineState && onlineState.scene === "playing"
+          ? extrapolateWorld(onlineState, performance.now() - onlineStateReceivedAt)
+          : onlineState;
+    if (!world) {
+      ctx.restore();
+      return;
+    }
+    const me = mode === "local" ? playerShip : world.ships.find((s) => s.id === onlineYourId);
+
+    if (world.scene === "waiting") {
+      drawOnlineStatusScreen();
+      ctx.restore();
+      return;
+    }
+
+    // Local mode's "world" is exactly the canvas size, so this transform is
+    // an identity no-op there. Online mode's world is a fixed arena shared
+    // by every client regardless of their viewport, so it needs to be
+    // scaled (letterboxed) to fit whatever size the canvas actually is.
+    const worldWidth = mode === "online" ? onlineWorldWidth : canvas.width;
+    const worldHeight = mode === "online" ? onlineWorldHeight : canvas.height;
+    const worldScale = Math.min(canvas.width / worldWidth, canvas.height / worldHeight);
+    const worldOffsetX = (canvas.width - worldWidth * worldScale) / 2;
+    const worldOffsetY = (canvas.height - worldHeight * worldScale) / 2;
+
+    ctx.save();
+    ctx.translate(worldOffsetX, worldOffsetY);
+    ctx.scale(worldScale, worldScale);
 
     ctx.strokeStyle = "rgba(127, 255, 212, 0.4)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(zone.center.x, zone.center.y, zone.radius, 0, Math.PI * 2);
+    ctx.arc(world.zone.center.x, world.zone.center.y, world.zone.radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    for (const ship of ships) {
-      if (ship.alive) drawShip(ship, ship === playerShip && input.thrust);
+    for (const ship of world.ships) {
+      if (ship.alive) drawShip(ship);
     }
 
     ctx.fillStyle = "#fff";
-    for (const b of bullets) {
+    for (const b of world.bullets) {
       ctx.beginPath();
       ctx.arc(b.pos.x, b.pos.y, 2, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    for (const a of asteroids) drawAsteroid(a);
-    for (const p of pickups) drawPickup(p);
+    for (const a of world.asteroids) drawAsteroid(a);
+    for (const p of world.pickups) drawPickup(p);
     drawParticles();
+    ctx.restore();
 
-    const aliveCount = ships.filter((s) => s.alive).length;
-    ctx.fillStyle = "#fff";
-    ctx.font = uiFont(canvas, 16);
-    ctx.fillText(`HP: ${Math.ceil(playerShip.hp)}`, 16, 24);
-    ctx.fillText(`Lives: ${playerShip.lives}`, 16, 44);
-    ctx.fillText(`Kills: ${playerShip.kills}`, 16, 64);
-    ctx.fillText(`Score: ${playerShip.score}`, 16, 84);
-    ctx.fillText(`Zone: ${Math.ceil(zone.radius)}`, 16, 104);
-    ctx.fillText(`Alive: ${aliveCount}/${ships.length}`, 16, 124);
-    if (playerShip.shieldTime > 0) {
-      ctx.fillStyle = "#5da8ff";
-      ctx.fillText(`Shield: ${playerShip.shieldTime.toFixed(1)}s`, 16, 144);
-    }
-    if (playerShip.rapidFireTime > 0) {
-      ctx.fillStyle = "#ffe45d";
-      ctx.fillText(`Rapid Fire: ${playerShip.rapidFireTime.toFixed(1)}s`, 16, playerShip.shieldTime > 0 ? 164 : 144);
+    if (me) {
+      const aliveCount = world.ships.filter((s) => s.alive).length;
+      ctx.fillStyle = "#fff";
+      ctx.font = uiFont(canvas, 16);
+      ctx.fillText(`HP: ${Math.ceil(me.hp)}`, 16, 24);
+      ctx.fillText(`Lives: ${me.lives}`, 16, 44);
+      ctx.fillText(`Kills: ${me.kills}`, 16, 64);
+      ctx.fillText(`Score: ${me.score}`, 16, 84);
+      ctx.fillText(`Zone: ${Math.ceil(world.zone.radius)}`, 16, 104);
+      ctx.fillText(`Alive: ${aliveCount}/${world.ships.length}`, 16, 124);
+      if (me.shieldTime > 0) {
+        ctx.fillStyle = "#5da8ff";
+        ctx.fillText(`Shield: ${me.shieldTime.toFixed(1)}s`, 16, 144);
+      }
+      if (me.rapidFireTime > 0) {
+        ctx.fillStyle = "#ffe45d";
+        ctx.fillText(`Rapid Fire: ${me.rapidFireTime.toFixed(1)}s`, 16, me.shieldTime > 0 ? 164 : 144);
+      }
     }
 
-    if (scene === "gameover") {
+    if (world.scene === "gameover") {
       ctx.textAlign = "center";
       ctx.font = uiFont(canvas, 48);
-      const won = winnerName === "You";
-      ctx.fillText(won ? "VICTORY" : "YOU DIED", canvas.width / 2, canvas.height / 2);
+      const won = me ? world.winnerName === me.name : false;
+      ctx.fillText(won ? "VICTORY" : "GAME OVER", canvas.width / 2, canvas.height / 2);
       ctx.font = uiFont(canvas, 20);
-      ctx.fillText(`Winner: ${winnerName}`, canvas.width / 2, canvas.height / 2 + 36);
-      ctx.fillText(`Kills: ${playerShip.kills}`, canvas.width / 2, canvas.height / 2 + 60);
-      if (restartCooldown === 0) {
+      ctx.fillText(`Winner: ${world.winnerName}`, canvas.width / 2, canvas.height / 2 + 36);
+      if (me) ctx.fillText(`Kills: ${me.kills}`, canvas.width / 2, canvas.height / 2 + 60);
+      if (mode === "local" && world.restartCooldown === 0) {
         ctx.fillText("Press SPACE to restart", canvas.width / 2, canvas.height / 2 + 92);
+      } else if (mode === "online") {
+        ctx.fillText("Next match starting soon...", canvas.width / 2, canvas.height / 2 + 92);
       }
       ctx.textAlign = "left";
     }
@@ -617,5 +616,6 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     input.dispose();
     sound.closeAudio();
     touchControls.destroy();
+    netClient?.disconnect();
   };
 }

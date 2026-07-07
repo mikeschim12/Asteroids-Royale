@@ -4,7 +4,7 @@
  * needed to input.ts, bot.ts, or the game loop's key-handling logic.
  */
 
-export type Scene = "start" | "playing" | "gameover";
+export type Scene = "start" | "playing" | "gameover" | "waiting";
 
 function isTouchDevice(): boolean {
   return "ontouchstart" in window || navigator.maxTouchPoints > 0;

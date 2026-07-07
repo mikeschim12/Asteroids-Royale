@@ -38,46 +38,28 @@ work independently:
 
 - `src/app/play/page.tsx` renders `<GameCanvas />` at `/play`.
 
-The prototype (ship movement, 5 AI bots, shrinking zone, asteroids,
+The prototype (ship movement, AI bots, shrinking zone, asteroids,
 particles, screen shake, procedural audio, starfield) lives in `src/game/`
 as plain modules (`entities.ts`, `bot.ts`, `vector.ts`, `zone.ts`,
-`starfield.ts`, `sound.ts`, `input.ts`) with `engine.ts` wiring them up
-behind `startGame`. It's folded in from the standalone Vite prototype so
-the game runs inside the Next.js canvas without a second build/dev setup —
-logic is otherwise unchanged.
+`starfield.ts`, `sound.ts`, `input.ts`, `simulation.ts`) with `engine.ts`
+wiring them up behind `startGame`. It's folded in from the standalone Vite
+prototype so the game runs inside the Next.js canvas without a second
+build/dev setup — logic is otherwise unchanged.
 
-### TODO: real multiplayer isn't wired into the site yet
+### Real-time multiplayer
 
-The game side has built real PvP networking on the standalone prototype
-(`game/` on the `claude/asteroids-royale-game-n02sol` branch, not yet
-merged to `main`):
+`/play` now has a mode toggle (press M) between **Local (vs Bots)** and
+**Online (PvP)**. Online mode connects to a separate WebSocket server —
+see `server/README.md` for how it works and how to run/deploy it. The
+client reads its address from `NEXT_PUBLIC_MULTIPLAYER_URL` (defaults to
+`ws://localhost:8080` if unset), which needs to be set to the deployed
+server's `wss://...` address for online mode to work in production.
 
-- `game/src/simulation.ts` — pure, shared game-simulation step (`stepSimulation`),
-  used by both the local loop and the server so physics/collision only
-  live in one place.
-- `game/src/net.ts` — WebSocket client with dead-reckoning smoothing and
-  auto-reconnect (capped exponential backoff).
-- `game/server/` — the authoritative WebSocket server itself (Node + `ws`,
-  30Hz tick, in-memory match state). See `game/server/README.md` for how it
-  works and Railway deployment steps (**it needs its own always-on Railway
-  service** — separate from this Next.js site, root directory `game/server`).
-
-**What's still needed to make `royale.rocks/play` actually support online
-PvP** (same shape of work as the earlier bots/touch-controls ports into
-`src/game/`):
-
-1. Port `simulation.ts` and `net.ts` into `src/game/`, and update
-   `engine.ts` to support an "online" mode alongside the current local/bot
-   mode (keeping the `startGame(canvas): StopGame` contract intact for
-   `GameCanvas.tsx`).
-2. Add a `NEXT_PUBLIC_MULTIPLAYER_URL` env var (Next's equivalent of the
-   prototype's `VITE_MULTIPLAYER_URL`) pointing at the deployed `wss://...`
-   server address, read at build time.
-3. Deploy `game/server` as its own Railway service (see above) before step
-   2 has a real URL to point at.
-
-Whoever picks this up next — game side or website side — should update
-this note once it's done.
+**Still needed to go live**: deploy `server/` as its own always-on Railway
+service, then set `NEXT_PUBLIC_MULTIPLAYER_URL` on the site's Railway
+service to that server's `wss://...` address and redeploy. Until then,
+online mode connects, fails gracefully, and shows a retry/local-play
+prompt — it doesn't break anything, it just has nothing to talk to yet.
 
 ## Auth
 
