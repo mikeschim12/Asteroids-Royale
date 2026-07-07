@@ -200,7 +200,7 @@ function update(dt: number) {
     if (!ship.alive) continue;
     let intent: BotIntent;
     if (ship.isBot) {
-      intent = computeBotIntent(ship, ships, asteroids, zone);
+      intent = computeBotIntent(ship, ships, asteroids, bullets, zone);
     } else {
       intent = { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire };
     }
