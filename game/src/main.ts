@@ -5,7 +5,7 @@ import { computeBotIntent } from "./bot";
 import { NetworkClient } from "./net";
 import * as sound from "./sound";
 import { Ship, Asteroid, Particle, Pickup, createShip, spawnExplosion, PICKUP_RADIUS } from "./entities";
-import { GameState, Scene, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos } from "./simulation";
+import { GameState, Scene, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos, applyShipMovement } from "./simulation";
 import { add, scale, fromAngle } from "./vector";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -55,6 +55,15 @@ let onlineYourId = -1;
 let onlineWorldWidth = 1600;
 let onlineWorldHeight = 900;
 let onlineStateReceivedAt = 0;
+/**
+ * A local copy of the player's own ship, re-synced to the authoritative
+ * value every time a server snapshot arrives and then advanced forward
+ * every render frame using the same input already sent to the server.
+ * This lets the local ship respond to input immediately instead of
+ * waiting a round-trip, while every other ship still just dead-reckons
+ * via extrapolateWorld.
+ */
+let predictedMe: Ship | null = null;
 
 // --- Shared client-only cosmetics ---
 let particles: Particle[] = [];
@@ -171,6 +180,8 @@ function connectOnline() {
       onlineState = newState;
       onlineConnectedCount = connectedCount;
       onlineStateReceivedAt = performance.now();
+      const myShip = newState.ships.find((s) => s.id === onlineYourId);
+      predictedMe = myShip ? { ...myShip } : null;
     },
     onReconnecting(attempt) {
       if (attempt > MAX_AUTO_RECONNECT_ATTEMPTS) {
@@ -185,6 +196,7 @@ function connectOnline() {
     onClose() {
       onlineStatus = "idle";
       onlineState = null;
+      predictedMe = null;
       netClient = null;
     },
     onError() {
@@ -260,7 +272,7 @@ function updateLocal(dt: number) {
   uiScene = state.scene;
 }
 
-function updateOnline() {
+function updateOnline(dt: number) {
   if (onlineStatus === "idle") {
     if (input.fire) {
       sound.resumeAudio();
@@ -270,9 +282,16 @@ function updateOnline() {
   }
   if (onlineStatus !== "connected" || !onlineState) return;
 
+  const intent: ShipIntent = { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire };
   // The server drives match restarts on its own timer; the client just
   // keeps streaming input regardless of scene (waiting/playing/gameover).
-  netClient?.sendInput({ rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire });
+  netClient?.sendInput(intent);
+
+  // Predict the local ship's own movement immediately using the same
+  // input just sent, rather than waiting for the server to echo it back.
+  if (predictedMe && predictedMe.alive && onlineState.scene === "playing") {
+    applyShipMovement(predictedMe, intent, dt, onlineWorldWidth, onlineWorldHeight);
+  }
 }
 
 function update(dt: number) {
@@ -287,13 +306,14 @@ function update(dt: number) {
     netClient?.disconnect();
     netClient = null;
     onlineState = null;
+    predictedMe = null;
     onlineStatus = "idle";
   }
 
   if (mode === "local") {
     updateLocal(dt);
   } else {
-    updateOnline();
+    updateOnline(dt);
   }
 
   for (const p of particles) {
@@ -510,7 +530,7 @@ function draw() {
     return;
   }
 
-  const world =
+  let world: GameState | null =
     mode === "local"
       ? state
       : onlineState && onlineState.scene === "playing"
@@ -519,6 +539,20 @@ function draw() {
   if (!world) {
     ctx.restore();
     return;
+  }
+
+  // Dead-reckoning is a good approximation for everyone else, but for our
+  // own ship we have something better: the actual predicted result of the
+  // input we've already sent. Swap it in for just the kinematic fields.
+  if (mode === "online" && world.scene === "playing" && predictedMe) {
+    world = {
+      ...world,
+      ships: world.ships.map((s) =>
+        s.id === onlineYourId
+          ? { ...s, pos: predictedMe!.pos, vel: predictedMe!.vel, angle: predictedMe!.angle, thrusting: predictedMe!.thrusting }
+          : s
+      ),
+    };
   }
   const me = mode === "local" ? playerShip : world.ships.find((s) => s.id === onlineYourId);
 

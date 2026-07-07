@@ -139,7 +139,13 @@ function killShip(state: GameState, ship: Ship, killerId: number | null, events:
   checkWinCondition(state);
 }
 
-function applyShipControl(state: GameState, ship: Ship, intent: ShipIntent, dt: number) {
+/**
+ * Rotation/thrust/drag/position only -- no cooldowns, firing, or damage.
+ * Exported so a multiplayer client can replay a ship's movement locally
+ * between server snapshots (client-side prediction) using the exact same
+ * physics as the authoritative sim, without duplicating it.
+ */
+export function applyShipMovement(ship: Ship, intent: ShipIntent, dt: number, width: number, height: number) {
   ship.thrusting = false;
   if (intent.rotateLeft) ship.angle -= SHIP_ROTATION_SPEED * dt;
   if (intent.rotateRight) ship.angle += SHIP_ROTATION_SPEED * dt;
@@ -149,7 +155,11 @@ function applyShipControl(state: GameState, ship: Ship, intent: ShipIntent, dt: 
     ship.vel = add(ship.vel, thrustVec);
   }
   ship.vel = scale(ship.vel, SHIP_DRAG);
-  ship.pos = wrap(add(ship.pos, scale(ship.vel, dt)), state.width, state.height);
+  ship.pos = wrap(add(ship.pos, scale(ship.vel, dt)), width, height);
+}
+
+function applyShipControl(state: GameState, ship: Ship, intent: ShipIntent, dt: number) {
+  applyShipMovement(ship, intent, dt, state.width, state.height);
 
   ship.invulnerable = Math.max(0, ship.invulnerable - dt);
   ship.shieldTime = Math.max(0, ship.shieldTime - dt);
