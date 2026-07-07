@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import StarfieldBackground from "@/components/StarfieldBackground";
 import OrbitRings from "@/components/OrbitRings";
@@ -51,19 +50,6 @@ export default function Home() {
       <section className="relative flex-1 flex flex-col items-center justify-center gap-8 px-6 py-32 text-center overflow-hidden">
         <StarfieldBackground />
         <OrbitRings />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-40 mix-blend-screen blur-sm"
-        >
-          <Image
-            src="/logo-bg.jpg"
-            alt=""
-            width={1000}
-            height={1000}
-            className="h-[130%] w-[130%] max-w-none object-contain sm:h-full sm:w-full"
-            priority
-          />
-        </div>
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(57,255,95,0.1),_transparent_60%)]"
