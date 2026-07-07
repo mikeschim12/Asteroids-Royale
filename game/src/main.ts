@@ -45,7 +45,8 @@ let state: GameState;
 let playerShip: Ship;
 
 // --- Online (real multiplayer) mode state ---
-type OnlineStatus = "idle" | "connecting" | "connected" | "error";
+type OnlineStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
+const MAX_AUTO_RECONNECT_ATTEMPTS = 6;
 let onlineStatus: OnlineStatus = "idle";
 let netClient: NetworkClient | null = null;
 let onlineState: GameState | null = null;
@@ -53,6 +54,7 @@ let onlineConnectedCount = 0;
 let onlineYourId = -1;
 let onlineWorldWidth = 1600;
 let onlineWorldHeight = 900;
+let onlineStateReceivedAt = 0;
 
 // --- Shared client-only cosmetics ---
 let particles: Particle[] = [];
@@ -75,6 +77,28 @@ function spawnThrustParticle(ship: Ship) {
     color: "#ff9d4d",
     radius: 2,
   });
+}
+
+const MAX_EXTRAPOLATION_MS = 150;
+/** Approximate server tick duration, only used to throttle the thrust sound in online mode. */
+const APPROX_SERVER_DT = 1 / 30;
+
+/**
+ * The server only broadcasts state at its tick rate (a few dozen times a
+ * second), which looks choppy if rendered as-is at 60fps. Between
+ * snapshots, dead-reckon every object's position forward using its last
+ * known velocity so online mode's motion looks as smooth as local mode's.
+ * Capped so a delayed/missed snapshot doesn't cause runaway drift.
+ */
+function extrapolateWorld(base: GameState, elapsedMs: number): GameState {
+  const dt = Math.min(elapsedMs, MAX_EXTRAPOLATION_MS) / 1000;
+  if (dt <= 0) return base;
+  return {
+    ...base,
+    ships: base.ships.map((s) => (s.alive ? { ...s, pos: add(s.pos, scale(s.vel, dt)) } : s)),
+    bullets: base.bullets.map((b) => ({ ...b, pos: add(b.pos, scale(b.vel, dt)) })),
+    asteroids: base.asteroids.map((a) => ({ ...a, pos: add(a.pos, scale(a.vel, dt)), rotation: a.rotation + a.rotationSpeed * dt })),
+  };
 }
 
 function applySimEvents(events: SimEvent[], myShipId: number) {
@@ -135,7 +159,7 @@ function connectOnline() {
         if (!ship.alive || !ship.thrusting) continue;
         spawnThrustParticle(ship);
         if (ship.id === onlineYourId) {
-          thrustSoundCooldown = Math.max(0, thrustSoundCooldown - 0.05);
+          thrustSoundCooldown = Math.max(0, thrustSoundCooldown - APPROX_SERVER_DT);
           if (thrustSoundCooldown === 0) {
             sound.playThrust();
             thrustSoundCooldown = 0.1;
@@ -146,6 +170,17 @@ function connectOnline() {
       applySimEvents(events, onlineYourId);
       onlineState = newState;
       onlineConnectedCount = connectedCount;
+      onlineStateReceivedAt = performance.now();
+    },
+    onReconnecting(attempt) {
+      if (attempt > MAX_AUTO_RECONNECT_ATTEMPTS) {
+        netClient?.disconnect();
+        netClient = null;
+        onlineState = null;
+        onlineStatus = "error";
+        return;
+      }
+      onlineStatus = "reconnecting";
     },
     onClose() {
       onlineStatus = "idle";
@@ -153,7 +188,8 @@ function connectOnline() {
       netClient = null;
     },
     onError() {
-      onlineStatus = "error";
+      // The 'close' event fires right after 'error' for the same socket and
+      // decides the actual status transition (reconnecting vs error).
     },
   });
 }
@@ -243,9 +279,14 @@ function update(dt: number) {
   shakeTime = Math.max(0, shakeTime - dt);
   if (shakeTime === 0) shakeMagnitude = 0;
 
-  const canSwitchMode = (mode === "local" && uiScene === "start") || (mode === "online" && (onlineStatus === "idle" || onlineStatus === "error"));
+  const canSwitchMode =
+    (mode === "local" && uiScene === "start") ||
+    (mode === "online" && (onlineStatus === "idle" || onlineStatus === "error" || onlineStatus === "reconnecting"));
   if (canSwitchMode && input.consumeJustPressed("KeyM")) {
     mode = mode === "local" ? "online" : "local";
+    netClient?.disconnect();
+    netClient = null;
+    onlineState = null;
     onlineStatus = "idle";
   }
 
@@ -421,6 +462,12 @@ function drawOnlineStatusScreen() {
   ctx.font = "32px monospace";
   if (onlineStatus === "connecting") {
     ctx.fillText("CONNECTING...", canvas.width / 2, canvas.height / 2);
+  } else if (onlineStatus === "reconnecting") {
+    ctx.fillStyle = "#ffe45d";
+    ctx.fillText("CONNECTION LOST -- RECONNECTING...", canvas.width / 2, canvas.height / 2);
+    ctx.fillStyle = "#fff";
+    ctx.font = "16px monospace";
+    ctx.fillText("Press M for local play", canvas.width / 2, canvas.height / 2 + 36);
   } else if (onlineStatus === "error") {
     ctx.fillStyle = "#ff5d5d";
     ctx.fillText("CONNECTION FAILED", canvas.width / 2, canvas.height / 2);
@@ -438,7 +485,8 @@ function drawOnlineStatusScreen() {
 
 function draw() {
   const activeScene: Scene = mode === "local" ? uiScene : onlineState?.scene ?? "start";
-  touchControls.sync(onlineStatus === "connecting" || onlineStatus === "error" ? "start" : activeScene);
+  const isTransientOnlineScreen = onlineStatus === "connecting" || onlineStatus === "reconnecting" || onlineStatus === "error";
+  touchControls.sync(isTransientOnlineScreen ? "start" : activeScene);
   ctx.save();
   if (shakeTime > 0) {
     const dx = (Math.random() - 0.5) * shakeMagnitude;
@@ -455,14 +503,19 @@ function draw() {
     ctx.restore();
     return;
   }
-  if (mode === "online" && (onlineStatus === "idle" || onlineStatus === "connecting" || onlineStatus === "error")) {
+  if (mode === "online" && onlineStatus !== "connected") {
     if (onlineStatus === "idle") drawStartScreen();
     else drawOnlineStatusScreen();
     ctx.restore();
     return;
   }
 
-  const world = mode === "local" ? state : onlineState;
+  const world =
+    mode === "local"
+      ? state
+      : onlineState && onlineState.scene === "playing"
+        ? extrapolateWorld(onlineState, performance.now() - onlineStateReceivedAt)
+        : onlineState;
   if (!world) {
     ctx.restore();
     return;

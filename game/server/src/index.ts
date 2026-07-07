@@ -5,7 +5,7 @@ import { GameState, ShipIntent, SimEvent, createInitialGameState, stepSimulation
 const PORT = Number(process.env.PORT) || 8080;
 const ARENA_WIDTH = 1600;
 const ARENA_HEIGHT = 900;
-const TICK_RATE = 20;
+const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const MIN_PLAYERS = 2;
 
