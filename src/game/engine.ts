@@ -8,10 +8,12 @@ import {
   Bullet,
   Asteroid,
   Particle,
+  Pickup,
   createShip,
   spawnAsteroid,
   splitAsteroid,
   spawnExplosion,
+  spawnPickup,
   SHIP_THRUST,
   SHIP_ROTATION_SPEED,
   SHIP_DRAG,
@@ -19,6 +21,12 @@ import {
   BULLET_TTL,
   FIRE_INTERVAL,
   RESPAWN_INVULN_TIME,
+  PICKUP_RADIUS,
+  PICKUP_DROP_CHANCE,
+  SHIELD_DURATION,
+  RAPID_FIRE_DURATION,
+  RAPID_FIRE_MULTIPLIER,
+  REPAIR_AMOUNT,
 } from "./entities";
 import { add, scale, fromAngle, distance, wrap } from "./vector";
 
@@ -51,6 +59,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   let bullets: Bullet[];
   let asteroids: Asteroid[];
   let particles: Particle[];
+  let pickups: Pickup[];
   let zone: ShrinkingZone;
   let restartCooldown = 0;
   let shakeTime = 0;
@@ -70,6 +79,21 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   function shake(magnitude: number, duration: number) {
     shakeMagnitude = Math.max(shakeMagnitude, magnitude);
     shakeTime = Math.max(shakeTime, duration);
+  }
+
+  function isProtected(ship: Ship): boolean {
+    return ship.invulnerable > 0 || ship.shieldTime > 0;
+  }
+
+  function applyPickup(ship: Ship, type: Pickup["type"]) {
+    if (type === "shield") {
+      ship.shieldTime = Math.max(ship.shieldTime, SHIELD_DURATION);
+    } else if (type === "rapid") {
+      ship.rapidFireTime = Math.max(ship.rapidFireTime, RAPID_FIRE_DURATION);
+    } else {
+      ship.hp = Math.min(ship.maxHp, ship.hp + REPAIR_AMOUNT);
+    }
+    sound.playPickup();
   }
 
   function randomSpawnPos(): { x: number; y: number } {
@@ -96,6 +120,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     bullets = [];
     asteroids = spawnWaveAsteroids(8);
     particles = [];
+    pickups = [];
     scene = "playing";
     winnerName = null;
     zone = new ShrinkingZone(
@@ -161,9 +186,11 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ship.pos = wrap(add(ship.pos, scale(ship.vel, dt)), canvas.width, canvas.height);
 
     ship.invulnerable = Math.max(0, ship.invulnerable - dt);
+    ship.shieldTime = Math.max(0, ship.shieldTime - dt);
+    ship.rapidFireTime = Math.max(0, ship.rapidFireTime - dt);
     ship.fireCooldown = Math.max(0, ship.fireCooldown - dt);
     if (intent.fire && ship.fireCooldown === 0) {
-      ship.fireCooldown = FIRE_INTERVAL;
+      ship.fireCooldown = ship.rapidFireTime > 0 ? FIRE_INTERVAL * RAPID_FIRE_MULTIPLIER : FIRE_INTERVAL;
       bullets.push({
         ownerId: ship.id,
         pos: add(ship.pos, scale(fromAngle(ship.angle), ship.radius)),
@@ -210,13 +237,13 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
       if (!ship.alive) continue;
       let intent: BotIntent;
       if (ship.isBot) {
-        intent = computeBotIntent(ship, ships, asteroids, bullets, zone, DIFFICULTIES[selectedDifficultyIndex].multiplier);
+        intent = computeBotIntent(ship, ships, asteroids, bullets, pickups, zone, DIFFICULTIES[selectedDifficultyIndex].multiplier);
       } else {
         intent = { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire };
       }
       applyShipControl(ship, intent, dt);
 
-      if (ship.invulnerable === 0 && zone.isOutside(ship.pos)) {
+      if (!isProtected(ship) && zone.isOutside(ship.pos)) {
         ship.hp -= zone.damagePerSecond * dt;
         if (ship.hp <= 0) {
           ship.hp = 0;
@@ -250,7 +277,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
       for (const ship of ships) {
-        if (!ship.alive || ship.id === b.ownerId || ship.invulnerable > 0) continue;
+        if (!ship.alive || ship.id === b.ownerId || isProtected(ship)) continue;
         if (distance(b.pos, ship.pos) < ship.radius) {
           bullets.splice(i, 1);
           ship.hp -= 34;
@@ -282,6 +309,9 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
         particles.push(...spawnExplosion(a.pos, "#ccc", 12));
         sound.playExplosion(a.size);
         shake(a.size * 1.5, 0.15);
+        if (Math.random() < PICKUP_DROP_CHANCE) {
+          pickups.push(spawnPickup(a.pos));
+        }
         survivingAsteroids.push(...splitAsteroid(a));
       } else {
         survivingAsteroids.push(a);
@@ -293,9 +323,25 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
       asteroids = spawnWaveAsteroids(8);
     }
 
+    for (const p of pickups) {
+      p.ttl -= dt;
+    }
+    pickups = pickups.filter((p) => p.ttl > 0);
+
+    // Ships vs pickups
+    for (const ship of ships) {
+      if (!ship.alive) continue;
+      for (let i = pickups.length - 1; i >= 0; i--) {
+        if (distance(ship.pos, pickups[i].pos) < ship.radius + PICKUP_RADIUS) {
+          applyPickup(ship, pickups[i].type);
+          pickups.splice(i, 1);
+        }
+      }
+    }
+
     // Ships vs asteroids
     for (const ship of ships) {
-      if (!ship.alive || ship.invulnerable > 0) continue;
+      if (!ship.alive || isProtected(ship)) continue;
       for (const a of asteroids) {
         if (distance(ship.pos, a.pos) < a.radius + ship.radius) {
           ship.hp -= 34;
@@ -315,7 +361,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
       for (let j = i + 1; j < ships.length; j++) {
         const a = ships[i];
         const b = ships[j];
-        if (!a.alive || !b.alive || a.invulnerable > 0 || b.invulnerable > 0) continue;
+        if (!a.alive || !b.alive || isProtected(a) || isProtected(b)) continue;
         if (distance(a.pos, b.pos) < a.radius + b.radius) {
           a.hp -= 20;
           b.hp -= 20;
@@ -335,6 +381,15 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
 
   function drawShip(s: Ship, isThrusting: boolean) {
     if (s.invulnerable > 0 && Math.floor(s.invulnerable * 10) % 2 === 0) return;
+    if (s.shieldTime > 0) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(93, 168, 255, 0.7)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(s.pos.x, s.pos.y, s.radius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.save();
     ctx.translate(s.pos.x, s.pos.y);
     ctx.rotate(s.angle);
@@ -384,6 +439,45 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     }
     ctx.closePath();
     ctx.stroke();
+    ctx.restore();
+  }
+
+  const PICKUP_COLORS: Record<Pickup["type"], string> = {
+    shield: "#5da8ff",
+    rapid: "#ffe45d",
+    repair: "#5dffb0",
+  };
+  const PICKUP_LABELS: Record<Pickup["type"], string> = {
+    shield: "S",
+    rapid: "R",
+    repair: "+",
+  };
+
+  function drawPickup(p: Pickup) {
+    const fading = p.ttl < 2;
+    if (fading && Math.floor(p.ttl * 6) % 2 === 0) return;
+    const color = PICKUP_COLORS[p.type];
+    ctx.save();
+    ctx.translate(p.pos.x, p.pos.y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const x = Math.cos(angle) * PICKUP_RADIUS;
+      const y = Math.sin(angle) * PICKUP_RADIUS;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = "12px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(PICKUP_LABELS[p.type], 0, 1);
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
     ctx.restore();
   }
 
@@ -459,6 +553,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     }
 
     for (const a of asteroids) drawAsteroid(a);
+    for (const p of pickups) drawPickup(p);
     drawParticles();
 
     const aliveCount = ships.filter((s) => s.alive).length;
@@ -470,6 +565,14 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ctx.fillText(`Score: ${playerShip.score}`, 16, 84);
     ctx.fillText(`Zone: ${Math.ceil(zone.radius)}`, 16, 104);
     ctx.fillText(`Alive: ${aliveCount}/${ships.length}`, 16, 124);
+    if (playerShip.shieldTime > 0) {
+      ctx.fillStyle = "#5da8ff";
+      ctx.fillText(`Shield: ${playerShip.shieldTime.toFixed(1)}s`, 16, 144);
+    }
+    if (playerShip.rapidFireTime > 0) {
+      ctx.fillStyle = "#ffe45d";
+      ctx.fillText(`Rapid Fire: ${playerShip.rapidFireTime.toFixed(1)}s`, 16, playerShip.shieldTime > 0 ? 164 : 144);
+    }
 
     if (scene === "gameover") {
       ctx.textAlign = "center";

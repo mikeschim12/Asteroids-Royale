@@ -17,6 +17,8 @@ export interface Ship {
   invulnerable: number;
   kills: number;
   score: number;
+  shieldTime: number;
+  rapidFireTime: number;
 }
 
 export interface Bullet {
@@ -45,6 +47,14 @@ export interface Particle {
   radius: number;
 }
 
+export type PickupType = "shield" | "rapid" | "repair";
+
+export interface Pickup {
+  pos: Vec2;
+  type: PickupType;
+  ttl: number;
+}
+
 export const SHIP_THRUST = 220;
 export const SHIP_ROTATION_SPEED = 3.2;
 export const SHIP_DRAG = 0.985;
@@ -56,6 +66,14 @@ export const FIRE_INTERVAL = 0.22;
 export const SHIP_STARTING_LIVES = 3;
 export const RESPAWN_INVULN_TIME = 2.5;
 export const ASTEROID_SHAPE_POINTS = 10;
+export const PICKUP_RADIUS = 12;
+export const PICKUP_TTL = 12;
+export const PICKUP_DROP_CHANCE = 0.25;
+export const SHIELD_DURATION = 5;
+export const RAPID_FIRE_DURATION = 6;
+export const RAPID_FIRE_MULTIPLIER = 0.4;
+export const REPAIR_AMOUNT = 40;
+const PICKUP_TYPES: PickupType[] = ["shield", "rapid", "repair"];
 
 export function createShip(
   id: number,
@@ -79,6 +97,8 @@ export function createShip(
     invulnerable: RESPAWN_INVULN_TIME,
     kills: 0,
     score: 0,
+    shieldTime: 0,
+    rapidFireTime: 0,
   };
 }
 
@@ -109,6 +129,11 @@ export function splitAsteroid(a: Asteroid): Asteroid[] {
   if (a.size === 1) return [];
   const nextSize = (a.size - 1) as 1 | 2;
   return [spawnAsteroid(add(a.pos, { x: 5, y: 5 }), nextSize), spawnAsteroid(add(a.pos, { x: -5, y: -5 }), nextSize)];
+}
+
+export function spawnPickup(pos: Vec2): Pickup {
+  const type = PICKUP_TYPES[Math.floor(Math.random() * PICKUP_TYPES.length)];
+  return { pos: { ...pos }, type, ttl: PICKUP_TTL };
 }
 
 export function spawnExplosion(pos: Vec2, color: string, count: number): Particle[] {

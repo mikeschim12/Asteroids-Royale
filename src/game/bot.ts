@@ -1,4 +1,4 @@
-import { Ship, Asteroid, Bullet, BULLET_SPEED } from "./entities";
+import { Ship, Asteroid, Bullet, Pickup, BULLET_SPEED } from "./entities";
 import { ShrinkingZone } from "./zone";
 import { Vec2, distance, add, scale } from "./vector";
 
@@ -100,6 +100,7 @@ export function computeBotIntent(
   ships: Ship[],
   asteroids: Asteroid[],
   bullets: Bullet[],
+  pickups: Pickup[],
   zone: ShrinkingZone,
   difficultyMultiplier: number = 1
 ): BotIntent {
@@ -162,23 +163,37 @@ export function computeBotIntent(
   }
 
   let target: Vec2 | null = null;
-  let targetIsShip = false;
+  let targetKind: "ship" | "asteroid" | "pickup" = "asteroid";
   let bestDist = Infinity;
+  let bestPriority = Infinity;
 
   if (inCombat && targetShip) {
     target = leadPosition(bot, targetShip);
-    targetIsShip = true;
+    targetKind = "ship";
     bestDist = bestShipDist;
   } else {
+    const hurt = bot.hp < bot.maxHp * 0.5;
+    for (const p of pickups) {
+      const d = distance(bot.pos, p.pos);
+      const priority = p.type === "repair" && hurt ? d * 0.5 : d;
+      if (priority < bestPriority) {
+        bestPriority = priority;
+        bestDist = d;
+        target = p.pos;
+        targetKind = "pickup";
+      }
+    }
     for (const a of asteroids) {
       const d = distance(bot.pos, a.pos);
-      if (d < bestDist) {
+      if (d < bestPriority) {
+        bestPriority = d;
         bestDist = d;
         target = a.pos;
-        targetIsShip = false;
+        targetKind = "asteroid";
       }
     }
   }
+  const targetIsShip = targetKind === "ship";
 
   // When not actively dogfighting, blend in a nudge away from crowded
   // neighbors so idle bots spread out instead of clumping together.
@@ -211,7 +226,7 @@ export function computeBotIntent(
   if (bestDist > 150) intent.thrust = true;
   else if (bestDist < 80 && targetIsShip) intent.thrust = Math.random() < 0.3;
 
-  if (!targetIsShip && Math.abs(diff) < 0.15) intent.fire = bestDist < 350;
+  if (targetKind === "asteroid" && Math.abs(diff) < 0.15) intent.fire = bestDist < 350;
 
   return intent;
 }

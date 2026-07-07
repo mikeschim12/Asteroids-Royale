@@ -63,3 +63,11 @@ export function playHit(): void {
 export function playThrust(): void {
   noiseBurst(0.05, 0.02);
 }
+
+export function playPickup(): void {
+  beep(660, 0.08, "sine", 0.08);
+  const c = getCtx();
+  setTimeout(() => {
+    if (c.state !== "closed") beep(990, 0.1, "sine", 0.08);
+  }, 60);
+}
