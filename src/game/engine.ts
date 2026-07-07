@@ -1,6 +1,7 @@
 import { InputState } from "./input";
 import { ShrinkingZone } from "./zone";
 import { Starfield } from "./starfield";
+import { TouchControls } from "./touchControls";
 import { computeBotIntent, BotIntent } from "./bot";
 import * as sound from "./sound";
 import {
@@ -51,6 +52,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   const ctx = canvas.getContext("2d")!;
   const starfield = new Starfield(canvas.width, canvas.height);
   const input = new InputState();
+  const touchControls = new TouchControls();
 
   type Scene = "start" | "playing" | "gameover";
   let scene: Scene = "start";
@@ -523,6 +525,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   }
 
   function draw() {
+    touchControls.sync(scene);
     ctx.save();
     if (shakeTime > 0) {
       const dx = (Math.random() - 0.5) * shakeMagnitude;
@@ -613,5 +616,6 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     cancelAnimationFrame(raf);
     input.dispose();
     sound.closeAudio();
+    touchControls.dispose();
   };
 }
