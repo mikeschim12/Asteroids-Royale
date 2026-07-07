@@ -12,6 +12,10 @@ function normalizeAngle(a: number): number {
   return a;
 }
 
+function clamp01(v: number): number {
+  return Math.min(1, Math.max(0, v));
+}
+
 // Deterministic per-bot personality derived from id, so behavior is
 // stable across frames without storing extra state on the bot.
 function personality(id: number) {
@@ -74,17 +78,43 @@ function nearestAsteroidInPath(bot: Ship, asteroids: Asteroid[]): Asteroid | nul
   return nearest;
 }
 
+const SEPARATION_RADIUS = 70;
+
+/** Steering nudge (in radians, relative to current heading) to keep clear of nearby non-target bots. */
+function separationBias(bot: Ship, ships: Ship[], ignoreId: number | null): number {
+  let push = { x: 0, y: 0 };
+  for (const other of ships) {
+    if (other.id === bot.id || other.id === ignoreId || !other.alive) continue;
+    const d = distance(bot.pos, other.pos);
+    if (d === 0 || d > SEPARATION_RADIUS) continue;
+    const weight = (SEPARATION_RADIUS - d) / SEPARATION_RADIUS;
+    push = add(push, scale({ x: bot.pos.x - other.pos.x, y: bot.pos.y - other.pos.y }, weight / d));
+  }
+  if (push.x === 0 && push.y === 0) return 0;
+  const pushAngle = Math.atan2(push.y, push.x);
+  return normalizeAngle(pushAngle - bot.angle);
+}
+
 export function computeBotIntent(
   bot: Ship,
   ships: Ship[],
   asteroids: Asteroid[],
   bullets: Bullet[],
-  zone: ShrinkingZone
+  zone: ShrinkingZone,
+  difficultyMultiplier: number = 1
 ): BotIntent {
   const intent: BotIntent = { rotateLeft: false, rotateRight: false, thrust: false, fire: false };
   if (!bot.alive) return intent;
 
-  const traits = personality(bot.id);
+  const base = personality(bot.id);
+  // Bots ramp up toward the end of the match (zone.progress: 0 -> 1) and
+  // scale with the difficulty chosen on the start screen.
+  const ramp = 1 + zone.progress * 0.5;
+  const traits = {
+    aimSkill: clamp01(base.aimSkill * difficultyMultiplier * ramp),
+    aggression: clamp01(base.aggression * difficultyMultiplier * ramp),
+    reaction: clamp01(base.reaction * difficultyMultiplier * ramp),
+  };
 
   if (zone.isOutside(bot.pos)) {
     const desired = angleTo(bot.pos, zone.center);
@@ -150,13 +180,25 @@ export function computeBotIntent(
     }
   }
 
+  // When not actively dogfighting, blend in a nudge away from crowded
+  // neighbors so idle bots spread out instead of clumping together.
+  const separation = inCombat ? 0 : separationBias(bot, ships, targetShip?.id ?? null);
+
   if (!target) {
-    intent.thrust = Math.random() < 0.02 ? !intent.thrust : intent.thrust;
+    if (Math.abs(separation) > 0.1) {
+      if (separation > 0) intent.rotateRight = true;
+      else intent.rotateLeft = true;
+      intent.thrust = true;
+    } else {
+      intent.thrust = Math.random() < 0.02 ? !intent.thrust : intent.thrust;
+    }
     return intent;
   }
 
   const desired = angleTo(bot.pos, target);
-  const diff = normalizeAngle(desired - bot.angle);
+  let diff = normalizeAngle(desired - bot.angle);
+  if (!inCombat) diff = normalizeAngle(diff + separation * 0.6);
+
   const aimTolerance = 0.16 - traits.aimSkill * 0.1;
 
   if (Math.abs(diff) > aimTolerance) {

@@ -40,8 +40,17 @@ const input = new InputState();
 type Scene = "start" | "playing" | "gameover";
 let scene: Scene = "start";
 
-const BOT_COUNT = 5;
-const BOT_COLORS = ["#ff5d5d", "#5da8ff", "#ffe45d", "#c65dff", "#5dffb0"];
+const BOT_COLORS = ["#ff5d5d", "#5da8ff", "#ffe45d", "#c65dff", "#5dffb0", "#ff9d4d", "#5dffff", "#ff5dc6"];
+const MIN_BOTS = 2;
+const MAX_BOTS = 8;
+const DIFFICULTIES: { label: string; multiplier: number }[] = [
+  { label: "Easy", multiplier: 0.7 },
+  { label: "Normal", multiplier: 1.0 },
+  { label: "Hard", multiplier: 1.3 },
+];
+
+let selectedBotCount = 5;
+let selectedDifficultyIndex = 1;
 
 let nextShipId = 0;
 let playerShip: Ship;
@@ -84,7 +93,7 @@ function resetGame() {
   nextShipId = 0;
   playerShip = createShip(nextShipId++, { x: canvas.width / 2, y: canvas.height / 2 }, { name: "You", color: "#7fffd4" });
   ships = [playerShip];
-  for (let i = 0; i < BOT_COUNT; i++) {
+  for (let i = 0; i < selectedBotCount; i++) {
     ships.push(
       createShip(nextShipId++, randomSpawnPos(), {
         isBot: true,
@@ -181,6 +190,18 @@ function update(dt: number) {
   if (shakeTime === 0) shakeMagnitude = 0;
 
   if (scene === "start") {
+    if (input.consumeJustPressed("ArrowLeft") || input.consumeJustPressed("KeyA")) {
+      selectedBotCount = Math.max(MIN_BOTS, selectedBotCount - 1);
+    }
+    if (input.consumeJustPressed("ArrowRight") || input.consumeJustPressed("KeyD")) {
+      selectedBotCount = Math.min(MAX_BOTS, selectedBotCount + 1);
+    }
+    if (input.consumeJustPressed("ArrowUp") || input.consumeJustPressed("KeyW")) {
+      selectedDifficultyIndex = Math.min(DIFFICULTIES.length - 1, selectedDifficultyIndex + 1);
+    }
+    if (input.consumeJustPressed("ArrowDown") || input.consumeJustPressed("KeyS")) {
+      selectedDifficultyIndex = Math.max(0, selectedDifficultyIndex - 1);
+    }
     if (input.fire) {
       sound.resumeAudio();
       resetGame();
@@ -200,7 +221,7 @@ function update(dt: number) {
     if (!ship.alive) continue;
     let intent: BotIntent;
     if (ship.isBot) {
-      intent = computeBotIntent(ship, ships, asteroids, bullets, zone);
+      intent = computeBotIntent(ship, ships, asteroids, bullets, zone, DIFFICULTIES[selectedDifficultyIndex].multiplier);
     } else {
       intent = { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire };
     }
@@ -393,12 +414,23 @@ function drawStartScreen() {
   ctx.textAlign = "center";
   ctx.fillStyle = "#7fffd4";
   ctx.font = "56px monospace";
-  ctx.fillText("ASTEROIDS ROYALE", canvas.width / 2, canvas.height / 2 - 40);
+  ctx.fillText("ASTEROIDS ROYALE", canvas.width / 2, canvas.height / 2 - 100);
   ctx.fillStyle = "#fff";
   ctx.font = "20px monospace";
-  ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 + 10);
-  ctx.fillText(`Last one standing wins vs ${BOT_COUNT} bots`, canvas.width / 2, canvas.height / 2 + 36);
-  ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 80);
+  ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 50);
+  ctx.fillText("Last one standing wins", canvas.width / 2, canvas.height / 2 - 26);
+
+  ctx.font = "22px monospace";
+  ctx.fillStyle = "#ffe45d";
+  ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 24);
+  ctx.fillStyle = "#5da8ff";
+  ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 54);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "14px monospace";
+  ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 84);
+  ctx.font = "20px monospace";
+  ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 120);
   ctx.textAlign = "left";
 }
 
