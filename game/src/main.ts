@@ -1,35 +1,11 @@
 import { InputState } from "./input";
-import { ShrinkingZone } from "./zone";
 import { Starfield } from "./starfield";
 import { TouchControls } from "./touchControls";
-import { computeBotIntent, BotIntent } from "./bot";
+import { computeBotIntent } from "./bot";
 import * as sound from "./sound";
-import {
-  Ship,
-  Bullet,
-  Asteroid,
-  Particle,
-  Pickup,
-  createShip,
-  spawnAsteroid,
-  splitAsteroid,
-  spawnExplosion,
-  spawnPickup,
-  SHIP_THRUST,
-  SHIP_ROTATION_SPEED,
-  SHIP_DRAG,
-  BULLET_SPEED,
-  BULLET_TTL,
-  FIRE_INTERVAL,
-  RESPAWN_INVULN_TIME,
-  PICKUP_RADIUS,
-  PICKUP_DROP_CHANCE,
-  SHIELD_DURATION,
-  RAPID_FIRE_DURATION,
-  RAPID_FIRE_MULTIPLIER,
-  REPAIR_AMOUNT,
-} from "./entities";
-import { add, scale, fromAngle, distance, wrap } from "./vector";
+import { Ship, Asteroid, Particle, Pickup, createShip, spawnExplosion, PICKUP_RADIUS } from "./entities";
+import { GameState, ShipIntent, createInitialGameState, stepSimulation, randomSpawnPos } from "./simulation";
+import { add, scale, fromAngle } from "./vector";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -48,9 +24,6 @@ resize();
 const input = new InputState();
 const touchControls = new TouchControls();
 
-type Scene = "start" | "playing" | "gameover";
-let scene: Scene = "start";
-
 const BOT_COLORS = ["#ff5d5d", "#5da8ff", "#ffe45d", "#c65dff", "#5dffb0", "#ff9d4d", "#5dffff", "#ff5dc6"];
 const MIN_BOTS = 2;
 const MAX_BOTS = 8;
@@ -63,163 +36,44 @@ const DIFFICULTIES: { label: string; multiplier: number }[] = [
 let selectedBotCount = 5;
 let selectedDifficultyIndex = 1;
 
-let nextShipId = 0;
+let uiScene: "start" | "playing" | "gameover" = "start";
+let state: GameState;
 let playerShip: Ship;
-let ships: Ship[];
-let bullets: Bullet[];
-let asteroids: Asteroid[];
-let particles: Particle[];
-let pickups: Pickup[];
-let zone: ShrinkingZone;
-let restartCooldown = 0;
+let particles: Particle[] = [];
 let shakeTime = 0;
 let shakeMagnitude = 0;
 let thrustSoundCooldown = 0;
-let winnerName: string | null = null;
-
-const ASTEROID_SCORE: Record<1 | 2 | 3, number> = { 1: 100, 2: 50, 3: 20 };
-
-function spawnWaveAsteroids(count: number) {
-  const result: Asteroid[] = [];
-  for (let i = 0; i < count; i++) {
-    const edge = Math.random() < 0.5 ? 0 : canvas.width;
-    result.push(spawnAsteroid({ x: edge, y: Math.random() * canvas.height }, 3));
-  }
-  return result;
-}
 
 function shake(magnitude: number, duration: number) {
   shakeMagnitude = Math.max(shakeMagnitude, magnitude);
   shakeTime = Math.max(shakeTime, duration);
 }
 
-function isProtected(ship: Ship): boolean {
-  return ship.invulnerable > 0 || ship.shieldTime > 0;
-}
-
-function applyPickup(ship: Ship, type: Pickup["type"]) {
-  if (type === "shield") {
-    ship.shieldTime = Math.max(ship.shieldTime, SHIELD_DURATION);
-  } else if (type === "rapid") {
-    ship.rapidFireTime = Math.max(ship.rapidFireTime, RAPID_FIRE_DURATION);
-  } else {
-    ship.hp = Math.min(ship.maxHp, ship.hp + REPAIR_AMOUNT);
-  }
-  sound.playPickup();
-}
-
-function randomSpawnPos(): { x: number; y: number } {
-  const margin = 100;
-  return {
-    x: margin + Math.random() * (canvas.width - margin * 2),
-    y: margin + Math.random() * (canvas.height - margin * 2),
-  };
-}
-
 function resetGame() {
-  nextShipId = 0;
+  let nextShipId = 0;
   playerShip = createShip(nextShipId++, { x: canvas.width / 2, y: canvas.height / 2 }, { name: "You", color: "#7fffd4" });
-  ships = [playerShip];
+  const ships = [playerShip];
   for (let i = 0; i < selectedBotCount; i++) {
     ships.push(
-      createShip(nextShipId++, randomSpawnPos(), {
+      createShip(nextShipId++, randomSpawnPos(canvas.width, canvas.height), {
         isBot: true,
         name: `Bot ${i + 1}`,
         color: BOT_COLORS[i % BOT_COLORS.length],
       })
     );
   }
-  bullets = [];
-  asteroids = spawnWaveAsteroids(8);
+  state = createInitialGameState(canvas.width, canvas.height, ships);
   particles = [];
-  pickups = [];
-  scene = "playing";
-  winnerName = null;
-  zone = new ShrinkingZone(
-    { x: canvas.width / 2, y: canvas.height / 2 },
-    Math.max(canvas.width, canvas.height) * 0.6,
-    140,
-    1.2
-  );
+  uiScene = "playing";
 }
 
 let lastTime = performance.now();
-
-function killShip(ship: Ship, killerId: number | null) {
-  particles.push(...spawnExplosion(ship.pos, ship.color, 24));
-  sound.playExplosion(3);
-  if (ship === playerShip) shake(10, 0.4);
-  ship.lives -= 1;
-
-  if (killerId !== null) {
-    const killer = ships.find((s) => s.id === killerId);
-    if (killer && killer.id !== ship.id) killer.kills += 1;
-  }
-
-  if (ship.lives <= 0) {
-    ship.alive = false;
-  } else {
-    ship.pos = randomSpawnPos();
-    ship.vel = { x: 0, y: 0 };
-    ship.hp = ship.maxHp;
-    ship.invulnerable = RESPAWN_INVULN_TIME;
-  }
-
-  const aliveShips = ships.filter((s) => s.alive);
-  if (aliveShips.length <= 1 && scene === "playing") {
-    scene = "gameover";
-    restartCooldown = 1;
-    winnerName = aliveShips.length === 1 ? aliveShips[0].name : "No one";
-  }
-}
-
-function applyShipControl(ship: Ship, intent: { rotateLeft: boolean; rotateRight: boolean; thrust: boolean; fire: boolean }, dt: number) {
-  if (intent.rotateLeft) ship.angle -= SHIP_ROTATION_SPEED * dt;
-  if (intent.rotateRight) ship.angle += SHIP_ROTATION_SPEED * dt;
-  if (intent.thrust) {
-    const thrustVec = scale(fromAngle(ship.angle), SHIP_THRUST * dt);
-    ship.vel = add(ship.vel, thrustVec);
-    const behind = ship.angle + Math.PI;
-    particles.push({
-      pos: add(ship.pos, scale(fromAngle(behind), ship.radius * 0.8)),
-      vel: add(scale(ship.vel, 0.3), scale(fromAngle(behind + (Math.random() - 0.5) * 0.6), 60)),
-      ttl: 0.25,
-      maxTtl: 0.25,
-      color: "#ff9d4d",
-      radius: 2,
-    });
-    if (ship === playerShip) {
-      thrustSoundCooldown = Math.max(0, thrustSoundCooldown - dt);
-      if (thrustSoundCooldown === 0) {
-        sound.playThrust();
-        thrustSoundCooldown = 0.1;
-      }
-    }
-  }
-  ship.vel = scale(ship.vel, SHIP_DRAG);
-  ship.pos = wrap(add(ship.pos, scale(ship.vel, dt)), canvas.width, canvas.height);
-
-  ship.invulnerable = Math.max(0, ship.invulnerable - dt);
-  ship.shieldTime = Math.max(0, ship.shieldTime - dt);
-  ship.rapidFireTime = Math.max(0, ship.rapidFireTime - dt);
-  ship.fireCooldown = Math.max(0, ship.fireCooldown - dt);
-  if (intent.fire && ship.fireCooldown === 0) {
-    ship.fireCooldown = ship.rapidFireTime > 0 ? FIRE_INTERVAL * RAPID_FIRE_MULTIPLIER : FIRE_INTERVAL;
-    bullets.push({
-      ownerId: ship.id,
-      pos: add(ship.pos, scale(fromAngle(ship.angle), ship.radius)),
-      vel: add(ship.vel, scale(fromAngle(ship.angle), BULLET_SPEED)),
-      ttl: BULLET_TTL,
-    });
-    if (ship === playerShip) sound.playFire();
-  }
-}
 
 function update(dt: number) {
   shakeTime = Math.max(0, shakeTime - dt);
   if (shakeTime === 0) shakeMagnitude = 0;
 
-  if (scene === "start") {
+  if (uiScene === "start") {
     if (input.consumeJustPressed("ArrowLeft") || input.consumeJustPressed("KeyA")) {
       selectedBotCount = Math.max(MIN_BOTS, selectedBotCount - 1);
     }
@@ -239,46 +93,67 @@ function update(dt: number) {
     return;
   }
 
-  if (scene === "gameover") {
-    restartCooldown = Math.max(0, restartCooldown - dt);
-    if (restartCooldown === 0 && input.fire) {
+  if (uiScene === "gameover") {
+    state.restartCooldown = Math.max(0, state.restartCooldown - dt);
+    if (state.restartCooldown === 0 && input.fire) {
       resetGame();
     }
     return;
   }
 
-  for (const ship of ships) {
+  const intents = new Map<number, ShipIntent>();
+  for (const ship of state.ships) {
     if (!ship.alive) continue;
-    let intent: BotIntent;
     if (ship.isBot) {
-      intent = computeBotIntent(ship, ships, asteroids, bullets, pickups, zone, DIFFICULTIES[selectedDifficultyIndex].multiplier);
+      intents.set(
+        ship.id,
+        computeBotIntent(ship, state.ships, state.asteroids, state.bullets, state.pickups, state.zone, DIFFICULTIES[selectedDifficultyIndex].multiplier)
+      );
     } else {
-      intent = { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire };
+      intents.set(ship.id, { rotateLeft: input.rotateLeft, rotateRight: input.rotateRight, thrust: input.thrust, fire: input.fire });
     }
-    applyShipControl(ship, intent, dt);
+  }
 
-    if (!isProtected(ship) && zone.isOutside(ship.pos)) {
-      ship.hp -= zone.damagePerSecond * dt;
-      if (ship.hp <= 0) {
-        ship.hp = 0;
-        killShip(ship, null);
+  const playerBulletsBefore = state.bullets.filter((b) => b.ownerId === playerShip.id).length;
+  const events = stepSimulation(state, intents, dt);
+  const playerBulletsAfter = state.bullets.filter((b) => b.ownerId === playerShip.id).length;
+  if (playerBulletsAfter > playerBulletsBefore) sound.playFire();
+
+  for (const ship of state.ships) {
+    if (!ship.alive || !ship.thrusting) continue;
+    const behind = ship.angle + Math.PI;
+    particles.push({
+      pos: add(ship.pos, scale(fromAngle(behind), ship.radius * 0.8)),
+      vel: add(scale(ship.vel, 0.3), scale(fromAngle(behind + (Math.random() - 0.5) * 0.6), 60)),
+      ttl: 0.25,
+      maxTtl: 0.25,
+      color: "#ff9d4d",
+      radius: 2,
+    });
+    if (ship === playerShip) {
+      thrustSoundCooldown = Math.max(0, thrustSoundCooldown - dt);
+      if (thrustSoundCooldown === 0) {
+        sound.playThrust();
+        thrustSoundCooldown = 0.1;
       }
     }
   }
 
-  zone.update(dt);
-
-  for (const b of bullets) {
-    b.pos = wrap(add(b.pos, scale(b.vel, dt)), canvas.width, canvas.height);
-    b.ttl -= dt;
-  }
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    if (bullets[i].ttl <= 0) bullets.splice(i, 1);
-  }
-
-  for (const a of asteroids) {
-    a.pos = wrap(add(a.pos, scale(a.vel, dt)), canvas.width, canvas.height);
-    a.rotation += a.rotationSpeed * dt;
+  for (const event of events) {
+    if (event.type === "shipExplosion") {
+      particles.push(...spawnExplosion(event.pos, event.color, 24));
+      sound.playExplosion(3);
+      if (event.shipId === playerShip.id) shake(10, 0.4);
+    } else if (event.type === "asteroidExplosion") {
+      particles.push(...spawnExplosion(event.pos, "#ccc", 12));
+      sound.playExplosion(event.size);
+      shake(event.size * 1.5, 0.15);
+    } else if (event.type === "hit") {
+      sound.playHit();
+      if (event.shipId === playerShip.id) shake(6, 0.2);
+    } else if (event.type === "pickup") {
+      sound.playPickup();
+    }
   }
 
   for (const p of particles) {
@@ -287,110 +162,7 @@ function update(dt: number) {
   }
   particles = particles.filter((p) => p.ttl > 0);
 
-  // Bullets vs ships
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    const b = bullets[i];
-    for (const ship of ships) {
-      if (!ship.alive || ship.id === b.ownerId || isProtected(ship)) continue;
-      if (distance(b.pos, ship.pos) < ship.radius) {
-        bullets.splice(i, 1);
-        ship.hp -= 34;
-        sound.playHit();
-        if (ship === playerShip) shake(6, 0.2);
-        if (ship.hp <= 0) {
-          ship.hp = 0;
-          killShip(ship, b.ownerId);
-        }
-        break;
-      }
-    }
-  }
-
-  // Bullets vs asteroids
-  const survivingAsteroids: Asteroid[] = [];
-  for (const a of asteroids) {
-    let shooterId: number | null = null;
-    for (let i = bullets.length - 1; i >= 0; i--) {
-      if (distance(bullets[i].pos, a.pos) < a.radius) {
-        shooterId = bullets[i].ownerId;
-        bullets.splice(i, 1);
-        break;
-      }
-    }
-    if (shooterId !== null) {
-      const shooter = ships.find((s) => s.id === shooterId);
-      if (shooter) shooter.score += ASTEROID_SCORE[a.size];
-      particles.push(...spawnExplosion(a.pos, "#ccc", 12));
-      sound.playExplosion(a.size);
-      shake(a.size * 1.5, 0.15);
-      if (Math.random() < PICKUP_DROP_CHANCE) {
-        pickups.push(spawnPickup(a.pos));
-      }
-      survivingAsteroids.push(...splitAsteroid(a));
-    } else {
-      survivingAsteroids.push(a);
-    }
-  }
-  asteroids = survivingAsteroids;
-
-  if (asteroids.length === 0) {
-    asteroids = spawnWaveAsteroids(8);
-  }
-
-  for (const p of pickups) {
-    p.ttl -= dt;
-  }
-  pickups = pickups.filter((p) => p.ttl > 0);
-
-  // Ships vs pickups
-  for (const ship of ships) {
-    if (!ship.alive) continue;
-    for (let i = pickups.length - 1; i >= 0; i--) {
-      if (distance(ship.pos, pickups[i].pos) < ship.radius + PICKUP_RADIUS) {
-        applyPickup(ship, pickups[i].type);
-        pickups.splice(i, 1);
-      }
-    }
-  }
-
-  // Ships vs asteroids
-  for (const ship of ships) {
-    if (!ship.alive || isProtected(ship)) continue;
-    for (const a of asteroids) {
-      if (distance(ship.pos, a.pos) < a.radius + ship.radius) {
-        ship.hp -= 34;
-        sound.playHit();
-        if (ship === playerShip) shake(6, 0.2);
-        if (ship.hp <= 0) {
-          ship.hp = 0;
-          killShip(ship, null);
-        }
-        break;
-      }
-    }
-  }
-
-  // Ship vs ship collision
-  for (let i = 0; i < ships.length; i++) {
-    for (let j = i + 1; j < ships.length; j++) {
-      const a = ships[i];
-      const b = ships[j];
-      if (!a.alive || !b.alive || isProtected(a) || isProtected(b)) continue;
-      if (distance(a.pos, b.pos) < a.radius + b.radius) {
-        a.hp -= 20;
-        b.hp -= 20;
-        if (a === playerShip || b === playerShip) shake(6, 0.2);
-        if (a.hp <= 0) {
-          a.hp = 0;
-          killShip(a, b.id);
-        }
-        if (b.hp <= 0) {
-          b.hp = 0;
-          killShip(b, a.id);
-        }
-      }
-    }
-  }
+  uiScene = state.scene;
 }
 
 function drawShip(s: Ship, isThrusting: boolean) {
@@ -532,7 +304,7 @@ function drawStartScreen() {
 }
 
 function draw() {
-  touchControls.sync(scene);
+  touchControls.sync(uiScene);
   ctx.save();
   if (shakeTime > 0) {
     const dx = (Math.random() - 0.5) * shakeMagnitude;
@@ -544,7 +316,7 @@ function draw() {
   ctx.fillRect(-20, -20, canvas.width + 40, canvas.height + 40);
   starfield.draw(ctx);
 
-  if (scene === "start") {
+  if (uiScene === "start") {
     drawStartScreen();
     ctx.restore();
     return;
@@ -553,33 +325,33 @@ function draw() {
   ctx.strokeStyle = "rgba(127, 255, 212, 0.4)";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(zone.center.x, zone.center.y, zone.radius, 0, Math.PI * 2);
+  ctx.arc(state.zone.center.x, state.zone.center.y, state.zone.radius, 0, Math.PI * 2);
   ctx.stroke();
 
-  for (const ship of ships) {
+  for (const ship of state.ships) {
     if (ship.alive) drawShip(ship, ship === playerShip && input.thrust);
   }
 
   ctx.fillStyle = "#fff";
-  for (const b of bullets) {
+  for (const b of state.bullets) {
     ctx.beginPath();
     ctx.arc(b.pos.x, b.pos.y, 2, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  for (const a of asteroids) drawAsteroid(a);
-  for (const p of pickups) drawPickup(p);
+  for (const a of state.asteroids) drawAsteroid(a);
+  for (const p of state.pickups) drawPickup(p);
   drawParticles();
 
-  const aliveCount = ships.filter((s) => s.alive).length;
+  const aliveCount = state.ships.filter((s) => s.alive).length;
   ctx.fillStyle = "#fff";
   ctx.font = "16px monospace";
   ctx.fillText(`HP: ${Math.ceil(playerShip.hp)}`, 16, 24);
   ctx.fillText(`Lives: ${playerShip.lives}`, 16, 44);
   ctx.fillText(`Kills: ${playerShip.kills}`, 16, 64);
   ctx.fillText(`Score: ${playerShip.score}`, 16, 84);
-  ctx.fillText(`Zone: ${Math.ceil(zone.radius)}`, 16, 104);
-  ctx.fillText(`Alive: ${aliveCount}/${ships.length}`, 16, 124);
+  ctx.fillText(`Zone: ${Math.ceil(state.zone.radius)}`, 16, 104);
+  ctx.fillText(`Alive: ${aliveCount}/${state.ships.length}`, 16, 124);
   if (playerShip.shieldTime > 0) {
     ctx.fillStyle = "#5da8ff";
     ctx.fillText(`Shield: ${playerShip.shieldTime.toFixed(1)}s`, 16, 144);
@@ -589,15 +361,15 @@ function draw() {
     ctx.fillText(`Rapid Fire: ${playerShip.rapidFireTime.toFixed(1)}s`, 16, playerShip.shieldTime > 0 ? 164 : 144);
   }
 
-  if (scene === "gameover") {
+  if (uiScene === "gameover") {
     ctx.textAlign = "center";
     ctx.font = "48px monospace";
-    const won = winnerName === "You";
+    const won = state.winnerName === "You";
     ctx.fillText(won ? "VICTORY" : "YOU DIED", canvas.width / 2, canvas.height / 2);
     ctx.font = "20px monospace";
-    ctx.fillText(`Winner: ${winnerName}`, canvas.width / 2, canvas.height / 2 + 36);
+    ctx.fillText(`Winner: ${state.winnerName}`, canvas.width / 2, canvas.height / 2 + 36);
     ctx.fillText(`Kills: ${playerShip.kills}`, canvas.width / 2, canvas.height / 2 + 60);
-    if (restartCooldown === 0) {
+    if (state.restartCooldown === 0) {
       ctx.fillText("Press SPACE to restart", canvas.width / 2, canvas.height / 2 + 92);
     }
     ctx.textAlign = "left";
