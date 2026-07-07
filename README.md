@@ -45,10 +45,36 @@ It was folded in from the standalone Vite prototype so the game runs inside
 the Next.js canvas without a second build/dev setup — logic is otherwise
 unchanged. Real-time multiplayer networking is planned but not yet built.
 
+## Auth
+
+Sign-in is optional — the game at `/play` is public. Auth (Google, via
+[Auth.js](https://authjs.dev)) exists so a signed-in identity is available
+for future features like saved scores and a leaderboard; nothing currently
+requires being signed in.
+
+- `src/auth.ts` — Auth.js config (Google provider).
+- `src/app/api/auth/[...nextauth]/route.ts` — auth route handler.
+- `src/app/signin/page.tsx` — sign-in page.
+- `src/components/AuthStatus.tsx` — header sign in/out UI (server component).
+
+Copy `.env.example` to `.env.local` and fill in:
+
+```bash
+AUTH_SECRET=      # npx auth secret
+AUTH_GOOGLE_ID=
+AUTH_GOOGLE_SECRET=
+```
+
+Create the Google OAuth client at the
+[Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+with an authorized redirect URI of
+`<your-url>/api/auth/callback/google` (add both the local and deployed URL).
+
 ## Getting started
 
 ```bash
 npm install
+cp .env.example .env.local   # fill in auth values, see above
 npm run dev
 ```
 
@@ -59,4 +85,6 @@ Open [http://localhost:3000](http://localhost:3000) for the landing page and
 
 Deploys to [Railway](https://railway.app) using `railway.toml`
 (Nixpacks build, `npm run build` / `npm run start`). Railway auto-assigns
-`PORT`, which `next start` picks up automatically — no extra config needed.
+`PORT`, which `next start` picks up automatically. Set `AUTH_SECRET`,
+`AUTH_GOOGLE_ID`, and `AUTH_GOOGLE_SECRET` as Railway environment variables,
+and add the deployed callback URL to the Google OAuth client.
