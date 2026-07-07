@@ -63,10 +63,12 @@ export default function Home() {
         <p className="relative font-mono text-xs tracking-[0.3em] text-accent">
           IN-BROWSER · NO INSTALL · FREE-FOR-ALL
         </p>
-        <CrownIcon className="relative -mb-3 h-8 w-8 text-accent drop-shadow-[0_0_12px_rgba(57,255,95,0.8)]" />
-        <h1 className="relative text-5xl sm:text-7xl font-mono font-bold tracking-tight text-accent drop-shadow-[0_0_20px_rgba(57,255,95,0.6)]">
-          ROYALE<span className="text-foreground">.ROCKS</span>
-        </h1>
+        <div className="relative inline-block">
+          <CrownIcon className="absolute -top-4 -left-3 sm:-top-6 sm:-left-5 h-6 w-6 sm:h-9 sm:w-9 -rotate-[18deg] text-accent drop-shadow-[0_0_12px_rgba(57,255,95,0.8)]" />
+          <h1 className="relative text-5xl sm:text-7xl font-mono font-bold tracking-tight text-accent drop-shadow-[0_0_20px_rgba(57,255,95,0.6)]">
+            ROYALE<span className="text-foreground">.ROCKS</span>
+          </h1>
+        </div>
         <p className="relative max-w-xl text-foreground/70 text-lg">
           The definitive <span className="text-accent">space classic</span>,
           reborn as an <span className="text-accent">asteroid battle royale</span>.

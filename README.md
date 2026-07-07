@@ -55,6 +55,12 @@ client reads its address from `NEXT_PUBLIC_MULTIPLAYER_URL` (defaults to
 `ws://localhost:8080` if unset), which needs to be set to the deployed
 server's `wss://...` address for online mode to work in production.
 
+**Still needed to go live**: deploy `server/` as its own always-on Railway
+service, then set `NEXT_PUBLIC_MULTIPLAYER_URL` on the site's Railway
+service to that server's `wss://...` address and redeploy. Until then,
+online mode connects, fails gracefully, and shows a retry/local-play
+prompt — it doesn't break anything, it just has nothing to talk to yet.
+
 ## Auth
 
 Sign-in is optional — the game at `/play` is public. Auth (Google, via
