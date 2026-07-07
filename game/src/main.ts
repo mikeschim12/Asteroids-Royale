@@ -51,6 +51,8 @@ let netClient: NetworkClient | null = null;
 let onlineState: GameState | null = null;
 let onlineConnectedCount = 0;
 let onlineYourId = -1;
+let onlineWorldWidth = 1600;
+let onlineWorldHeight = 900;
 
 // --- Shared client-only cosmetics ---
 let particles: Particle[] = [];
@@ -118,8 +120,10 @@ function connectOnline() {
   particles = [];
   netClient = new NetworkClient();
   netClient.connect(MULTIPLAYER_URL, {
-    onWelcome(yourShipId) {
+    onWelcome(yourShipId, worldWidth, worldHeight) {
       onlineYourId = yourShipId;
+      onlineWorldWidth = worldWidth;
+      onlineWorldHeight = worldHeight;
       onlineStatus = "connected";
     },
     onState(newState, events, connectedCount) {
@@ -471,6 +475,20 @@ function draw() {
     return;
   }
 
+  // Local mode's "world" is exactly the canvas size, so this transform is
+  // an identity no-op there. Online mode's world is a fixed arena shared
+  // by every client regardless of their viewport, so it needs to be
+  // scaled (letterboxed) to fit whatever size the canvas actually is.
+  const worldWidth = mode === "online" ? onlineWorldWidth : canvas.width;
+  const worldHeight = mode === "online" ? onlineWorldHeight : canvas.height;
+  const worldScale = Math.min(canvas.width / worldWidth, canvas.height / worldHeight);
+  const worldOffsetX = (canvas.width - worldWidth * worldScale) / 2;
+  const worldOffsetY = (canvas.height - worldHeight * worldScale) / 2;
+
+  ctx.save();
+  ctx.translate(worldOffsetX, worldOffsetY);
+  ctx.scale(worldScale, worldScale);
+
   ctx.strokeStyle = "rgba(127, 255, 212, 0.4)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -491,6 +509,7 @@ function draw() {
   for (const a of world.asteroids) drawAsteroid(a);
   for (const p of world.pickups) drawPickup(p);
   drawParticles();
+  ctx.restore();
 
   if (me) {
     const aliveCount = world.ships.filter((s) => s.alive).length;
