@@ -1,6 +1,10 @@
 export class InputState {
   private keys = new Set<string>();
-  private onKeyDown = (e: KeyboardEvent) => this.keys.add(e.code);
+  private justPressed = new Set<string>();
+  private onKeyDown = (e: KeyboardEvent) => {
+    if (!this.keys.has(e.code)) this.justPressed.add(e.code);
+    this.keys.add(e.code);
+  };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
 
   constructor() {
@@ -15,6 +19,15 @@ export class InputState {
 
   isDown(code: string): boolean {
     return this.keys.has(code);
+  }
+
+  /** True once for the frame a key transitions from up to down; consumes the event. */
+  consumeJustPressed(code: string): boolean {
+    if (this.justPressed.has(code)) {
+      this.justPressed.delete(code);
+      return true;
+    }
+    return false;
   }
 
   get thrust(): boolean {
