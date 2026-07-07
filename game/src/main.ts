@@ -414,7 +414,7 @@ function drawStartScreen() {
   ctx.textAlign = "center";
   ctx.fillStyle = "#7fffd4";
   ctx.font = "56px monospace";
-  ctx.fillText("ASTEROIDS ROYALE", canvas.width / 2, canvas.height / 2 - 100);
+  ctx.fillText("ROYALE.ROCKS", canvas.width / 2, canvas.height / 2 - 100);
   ctx.fillStyle = "#fff";
   ctx.font = "20px monospace";
   ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 50);
