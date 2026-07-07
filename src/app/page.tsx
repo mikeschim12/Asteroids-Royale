@@ -9,6 +9,7 @@ import {
   StickIcon,
   CrosshairIcon,
   SparkleIcon,
+  CrownIcon,
 } from "@/components/icons";
 
 const features = [
@@ -62,6 +63,7 @@ export default function Home() {
         <p className="relative font-mono text-xs tracking-[0.3em] text-accent">
           IN-BROWSER · NO INSTALL · FREE-FOR-ALL
         </p>
+        <CrownIcon className="relative -mb-3 h-8 w-8 text-accent drop-shadow-[0_0_12px_rgba(57,255,95,0.8)]" />
         <h1 className="relative text-5xl sm:text-7xl font-mono font-bold tracking-tight text-accent drop-shadow-[0_0_20px_rgba(57,255,95,0.6)]">
           ROYALE<span className="text-foreground">.ROCKS</span>
         </h1>

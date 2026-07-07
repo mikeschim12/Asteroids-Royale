@@ -68,6 +68,25 @@ export function CrosshairIcon({ className }: IconProps) {
   );
 }
 
+export function CrownIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M3 8l4 3 5-6 5 6 4-3-2 10H5L3 8z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        fill="currentColor"
+        fillOpacity="0.15"
+      />
+      <circle cx="3" cy="7" r="1.4" fill="currentColor" />
+      <circle cx="12" cy="4.5" r="1.4" fill="currentColor" />
+      <circle cx="21" cy="7" r="1.4" fill="currentColor" />
+      <path d="M5.5 18h13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SparkleIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
