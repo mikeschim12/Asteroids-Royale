@@ -69,8 +69,9 @@ AUTH_GOOGLE_SECRET=
 
 Create the Google OAuth client at the
 [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-with an authorized redirect URI of
-`<your-url>/api/auth/callback/google` (add both the local and deployed URL).
+with authorized redirect URIs for both:
+- `http://localhost:3000/api/auth/callback/google`
+- `https://royale.rocks/api/auth/callback/google`
 
 ## Getting started
 
@@ -87,6 +88,31 @@ Open [http://localhost:3000](http://localhost:3000) for the landing page and
 
 Deploys to [Railway](https://railway.app) using `railway.toml`
 (Nixpacks build, `npm run build` / `npm run start`). Railway auto-assigns
-`PORT`, which `next start` picks up automatically. Set `AUTH_SECRET`,
-`AUTH_GOOGLE_ID`, and `AUTH_GOOGLE_SECRET` as Railway environment variables,
-and add the deployed callback URL to the Google OAuth client.
+`PORT`, which `next start` picks up automatically.
+
+Live at **[royale.rocks](https://royale.rocks)**.
+
+Set these as Railway environment variables (Service → Variables):
+
+```
+AUTH_SECRET=      # npx auth secret
+AUTH_GOOGLE_ID=
+AUTH_GOOGLE_SECRET=
+```
+
+### Custom domain (royale.rocks, DNS on Cloudflare)
+
+1. **Railway**: Service → Settings → Networking → Custom Domain → add
+   `royale.rocks` (and `www.royale.rocks` if you want the `www` variant).
+   Railway will show a `CNAME` target like `xxxx.up.railway.app`.
+2. **Cloudflare**: DNS → add a `CNAME` record:
+   - Name: `@` (root) — Cloudflare supports CNAME flattening at the apex
+   - Target: the Railway CNAME target from step 1
+   - Proxy status: **DNS only** (grey cloud) at first, so Railway can
+     issue the TLS certificate. You can switch it to proxied (orange
+     cloud) afterward once the domain is verified in Railway.
+   - Repeat for `www` pointing at the same target if you added it.
+3. Wait for Railway to show the domain as **Active**/verified (DNS
+   propagation is usually minutes, occasionally longer).
+4. Add `https://royale.rocks/api/auth/callback/google` as an authorized
+   redirect URI on the Google OAuth client (see Auth section above).

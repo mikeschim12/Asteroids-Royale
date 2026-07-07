@@ -6,4 +6,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   pages: {
     signIn: "/signin",
   },
+  // Railway (like most non-Vercel hosts) sits behind a reverse proxy, so
+  // Auth.js needs to trust the forwarded host/proto headers to build
+  // correct callback URLs instead of defaulting to internal ones.
+  trustHost: true,
 });

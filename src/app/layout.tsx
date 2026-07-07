@@ -16,8 +16,23 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://royale.rocks"),
   title: "Asteroids Royale",
-  description: "A battle-royale twist on the arcade classic.",
+  description:
+    "The arcade classic, reborn as a battle royale. Dodge rocks, dodge ships, and outlast 5 AI bots inside a shrinking arena.",
+  openGraph: {
+    title: "Asteroids Royale",
+    description:
+      "The arcade classic, reborn as a battle royale. Play free in your browser.",
+    url: "https://royale.rocks",
+    siteName: "Asteroids Royale",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Asteroids Royale",
+    description:
+      "The arcade classic, reborn as a battle royale. Play free in your browser.",
+  },
 };
 
 export default function RootLayout({
