@@ -3,8 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Suspense } from "react";
 import AuthStatus from "@/components/AuthStatus";
-import Footer from "@/components/Footer";
-import CookieConsent from "@/components/CookieConsent";
+import SiteChrome from "@/components/SiteChrome";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -67,8 +66,7 @@ export default function RootLayout({
           </div>
         </header>
         <main className="flex-1 flex flex-col">{children}</main>
-        <Footer />
-        <CookieConsent />
+        <SiteChrome />
       </body>
     </html>
   );
