@@ -50,11 +50,16 @@ default if unset) and run the site's own `npm run dev`.
   just that subfolder, which breaks the `../src/game/...` relative imports
   (they resolve outside the copied build context and the server crashes at
   startup with `ERR_MODULE_NOT_FOUND`).
-- Instead, point the service at `server/railway.toml` as its config file
-  (Settings → Config-as-code Path), which sets `buildCommand = "npm install
-  --prefix server"` and `startCommand = "npm start --prefix server"` — the
-  full repo is present in the build context, but commands run scoped to
-  `server/`.
+- Set the build/start commands directly in the dashboard instead of via a
+  committed `railway.toml` in `server/`: **Settings → Build → Custom Build
+  Command** → `npm install --prefix server`, **Settings → Deploy → Custom
+  Start Command** → `npm start --prefix server`. (A nested `railway.toml`
+  under `server/` gets auto-discovered by Nixpacks and misapplied as the
+  app source directory itself, producing a `Not a directory` build error —
+  avoid that by not adding one; only the root `railway.toml`, which the
+  main site's service uses, should exist in this repo.)
+- The full repo is present in the build context (Root Directory unset), but
+  `--prefix server` scopes both commands to run from inside `server/`.
 - Railway assigns `PORT` automatically; the server already reads it from the
   environment, no config needed there.
 - Railway terminates TLS for you, so the public address will be `wss://`
