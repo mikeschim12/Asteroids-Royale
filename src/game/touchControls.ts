@@ -127,7 +127,21 @@ export class TouchControls {
       mk({ label: "−", code: "ArrowLeft", tapOnly: true, style: { left: "20px", top: "calc(50% + 40px)", width: "50px", height: "50px" } }),
       mk({ label: "+", code: "ArrowRight", tapOnly: true, style: { left: "80px", top: "calc(50% + 40px)", width: "50px", height: "50px" } }),
       mk({ label: "−", code: "ArrowDown", tapOnly: true, style: { right: "80px", top: "calc(50% + 40px)", width: "50px", height: "50px" } }),
-      mk({ label: "+", code: "ArrowUp", tapOnly: true, style: { right: "20px", top: "calc(50% + 40px)", width: "50px", height: "50px" } })
+      mk({ label: "+", code: "ArrowUp", tapOnly: true, style: { right: "20px", top: "calc(50% + 40px)", width: "50px", height: "50px" } }),
+      mk({
+        label: "MODE",
+        code: "KeyM",
+        tapOnly: true,
+        style: {
+          left: "50%",
+          top: "calc(50% + 110px)",
+          transform: "translateX(-50%)",
+          width: "100px",
+          height: "44px",
+          borderRadius: "22px",
+          fontSize: "14px",
+        },
+      })
     );
 
     this.actionButton = mk({
