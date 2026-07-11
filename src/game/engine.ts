@@ -1,6 +1,7 @@
 import { InputState } from "./input";
 import { Starfield } from "./starfield";
 import { TouchControls } from "./touchControls";
+import { NameEntry } from "./nameEntry";
 import { computeBotIntent } from "./bot";
 import { NetworkClient } from "./net";
 import * as sound from "./sound";
@@ -34,6 +35,10 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   const starfield = new Starfield(canvas.width, canvas.height);
   const input = new InputState();
   const touchControls = new TouchControls(canvas.parentElement ?? document.body);
+  let username = "";
+  const nameEntry = new NameEntry(canvas.parentElement ?? document.body, (name) => {
+    username = name;
+  });
 
   let selectedBotCount = 5;
   let selectedDifficultyIndex = 1;
@@ -108,7 +113,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
 
   function resetGame() {
     let nextShipId = 0;
-    playerShip = createShip(nextShipId++, { x: canvas.width / 2, y: canvas.height / 2 }, { name: "You", color: "#7fffd4" });
+    playerShip = createShip(nextShipId++, { x: canvas.width / 2, y: canvas.height / 2 }, { name: username || "You", color: "#7fffd4" });
     const ships = [playerShip];
     for (let i = 0; i < selectedBotCount; i++) {
       ships.push(
@@ -129,7 +134,8 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     onlineStatus = "connecting";
     particles = [];
     netClient = new NetworkClient();
-    netClient.connect(MULTIPLAYER_URL, {
+    const joinUrl = `${MULTIPLAYER_URL}${MULTIPLAYER_URL.includes("?") ? "&" : "?"}name=${encodeURIComponent(username)}`;
+    netClient.connect(joinUrl, {
       onWelcome(yourShipId, worldWidth, worldHeight) {
         onlineYourId = yourShipId;
         onlineWorldWidth = worldWidth;
@@ -463,6 +469,9 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
       ctx.font = uiFont(canvas, 16);
       ctx.fillStyle = "#fff";
       ctx.fillText("Last one standing wins. Real opponents only.", canvas.width / 2, canvas.height / 2 + 60);
+      ctx.font = uiFont(canvas, 13);
+      ctx.fillStyle = "#888";
+      ctx.fillText("Click NAME in the corner to set the name opponents see", canvas.width / 2, canvas.height / 2 + 84);
     }
 
     ctx.font = uiFont(canvas, 20);
@@ -650,6 +659,7 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     input.dispose();
     sound.closeAudio();
     touchControls.destroy();
+    nameEntry.destroy();
     netClient?.disconnect();
   };
 }

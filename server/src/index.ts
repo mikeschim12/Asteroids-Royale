@@ -39,9 +39,19 @@ function resetRound() {
 
 const wss = new WebSocketServer({ port: PORT });
 
-wss.on("connection", (ws) => {
+function nameFromRequestUrl(url: string | undefined, fallback: string): string {
+  try {
+    const requested = new URL(url ?? "", "http://localhost").searchParams.get("name")?.trim();
+    return requested ? requested.slice(0, 16) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+wss.on("connection", (ws, req) => {
   const shipId = nextShipId++;
-  const meta: PlayerMeta = { name: `Player ${shipId + 1}`, color: PLAYER_COLORS[shipId % PLAYER_COLORS.length] };
+  const name = nameFromRequestUrl(req.url, `Player ${shipId + 1}`);
+  const meta: PlayerMeta = { name, color: PLAYER_COLORS[shipId % PLAYER_COLORS.length] };
   playerMeta.set(shipId, meta);
   sockets.set(shipId, ws);
   intents.set(shipId, { rotateLeft: false, rotateRight: false, thrust: false, fire: false });
