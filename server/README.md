@@ -50,16 +50,20 @@ default if unset) and run the site's own `npm run dev`.
   just that subfolder, which breaks the `../src/game/...` relative imports
   (they resolve outside the copied build context and the server crashes at
   startup with `ERR_MODULE_NOT_FOUND`).
-- Set the build/start commands directly in the dashboard instead of via a
-  committed `railway.toml` in `server/`: **Settings → Build → Custom Build
-  Command** → `npm install --prefix server`, **Settings → Deploy → Custom
-  Start Command** → `npm start --prefix server`. (A nested `railway.toml`
-  under `server/` gets auto-discovered by Nixpacks and misapplied as the
-  app source directory itself, producing a `Not a directory` build error —
-  avoid that by not adding one; only the root `railway.toml`, which the
-  main site's service uses, should exist in this repo.)
-- The full repo is present in the build context (Root Directory unset), but
-  `--prefix server` scopes both commands to run from inside `server/`.
+- With Root Directory unset, Railway's config-as-code auto-discovery reads
+  the **root** `railway.toml` (the main site's — `npm run build` / `npm run
+  start`) for every service in the project unless told otherwise, so this
+  service will silently run the *website* instead of the multiplayer
+  server if left on auto-discovery. Explicitly point it at this folder's
+  config instead: **Settings → Config-as-code → Add File Path** →
+  `server/railway.toml`. That file sets `buildCommand = "npm install
+  --prefix server"` and `startCommand = "npm start --prefix server"` — the
+  full repo is still present in the build context (Root Directory unset),
+  but the commands run scoped to `server/`.
+- Once a service's build/start commands come from a config-as-code file,
+  the dashboard's Custom Build/Start Command fields become read-only
+  (they show "value is set in ...") — that's expected, edit the file
+  instead of fighting the dashboard fields.
 - Railway assigns `PORT` automatically; the server already reads it from the
   environment, no config needed there.
 - Railway terminates TLS for you, so the public address will be `wss://`
