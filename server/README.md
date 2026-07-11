@@ -45,11 +45,16 @@ default if unset) and run the site's own `npm run dev`.
 - This needs to be a **separate service** from the main Next.js site — it's
   a long-running process holding in-memory game state, not something that
   fits a serverless/edge function model.
-- Add a new service in the same Railway project, set its **root directory**
-  to `server` (Railway still checks out the whole repo; this just changes
-  where build/start commands run from — the `../src/game/...` relative
-  imports still resolve on disk since the full repo is present). Build
-  command `npm install`, start command `npm start`.
+- Add a new service in the same Railway project. **Leave its Root Directory
+  unset** (repo root) — setting it to `server` makes Nixpacks build from
+  just that subfolder, which breaks the `../src/game/...` relative imports
+  (they resolve outside the copied build context and the server crashes at
+  startup with `ERR_MODULE_NOT_FOUND`).
+- Instead, point the service at `server/railway.toml` as its config file
+  (Settings → Config-as-code Path), which sets `buildCommand = "npm install
+  --prefix server"` and `startCommand = "npm start --prefix server"` — the
+  full repo is present in the build context, but commands run scoped to
+  `server/`.
 - Railway assigns `PORT` automatically; the server already reads it from the
   environment, no config needed there.
 - Railway terminates TLS for you, so the public address will be `wss://`
