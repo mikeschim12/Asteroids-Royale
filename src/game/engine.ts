@@ -569,12 +569,29 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     // Local mode's "world" is exactly the canvas size, so this transform is
     // an identity no-op there. Online mode's world is a fixed arena shared
     // by every client regardless of their viewport, so it needs to be
-    // scaled (letterboxed) to fit whatever size the canvas actually is.
+    // scaled to fit whatever size the canvas actually is. Using "cover"
+    // (fill the whole canvas, cropping whichever axis has room to spare)
+    // rather than "contain" (fit the whole arena, letterboxing) -- on a
+    // narrow phone screen "contain" left most of the screen as black bars
+    // and shrank the actual gameplay down to a tiny strip.
     const worldWidth = mode === "online" ? onlineWorldWidth : canvas.width;
     const worldHeight = mode === "online" ? onlineWorldHeight : canvas.height;
-    const worldScale = Math.min(canvas.width / worldWidth, canvas.height / worldHeight);
-    const worldOffsetX = (canvas.width - worldWidth * worldScale) / 2;
-    const worldOffsetY = (canvas.height - worldHeight * worldScale) / 2;
+    const worldScale = Math.max(canvas.width / worldWidth, canvas.height / worldHeight);
+    // With "cover" scaling the full arena no longer fits on screen, so
+    // center the camera on the local player (clamped to the arena's edges)
+    // instead of the arena's center -- otherwise a ship spawned outside
+    // whatever slice happens to be centered on the arena would be
+    // invisible until it wandered into view.
+    const maxOffsetX = 0;
+    const minOffsetX = canvas.width - worldWidth * worldScale;
+    const maxOffsetY = 0;
+    const minOffsetY = canvas.height - worldHeight * worldScale;
+    const worldOffsetX = me
+      ? Math.min(maxOffsetX, Math.max(minOffsetX, canvas.width / 2 - me.pos.x * worldScale))
+      : (canvas.width - worldWidth * worldScale) / 2;
+    const worldOffsetY = me
+      ? Math.min(maxOffsetY, Math.max(minOffsetY, canvas.height / 2 - me.pos.y * worldScale))
+      : (canvas.height - worldHeight * worldScale) / 2;
 
     ctx.save();
     ctx.translate(worldOffsetX, worldOffsetY);
