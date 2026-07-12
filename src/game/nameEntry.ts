@@ -36,7 +36,10 @@ export class NameEntry {
 
     this.root = document.createElement("div");
     Object.assign(this.root.style, {
-      position: "fixed",
+      // Absolute (not fixed) so this sits relative to the game's own
+      // container -- which starts below the site header -- instead of the
+      // viewport's top edge, where it would overlap the header bar.
+      position: "absolute",
       top: "12px",
       left: "12px",
       zIndex: "2147483647",
