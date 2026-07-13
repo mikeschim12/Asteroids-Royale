@@ -87,6 +87,26 @@ with authorized redirect URIs for both:
 - `http://localhost:3000/api/auth/callback/google`
 - `https://royale.rocks/api/auth/callback/google`
 
+## Security
+
+- `src/proxy.ts` (Next 16 renamed "middleware" to "proxy" — same thing) sets
+  a per-request, nonce-based Content-Security-Policy plus
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy`, and a restrictive `Permissions-Policy` on every
+  response. The nonce is real per-request randomness (not a static value),
+  and Next automatically applies it to the inline scripts it injects for
+  hydration, so `script-src` doesn't need `'unsafe-inline'`.
+- The multiplayer server (`server/`) caps message size and concurrent
+  connections, has an opt-in Origin allowlist, and won't crash the whole
+  process (and every in-progress match) on an unexpected error from one
+  connection — see `server/README.md`'s Hardening section for specifics.
+- Auth: `trustHost: true` is required behind Railway's reverse proxy (see
+  `src/auth.ts`) — Auth.js still validates the OAuth state/PKCE flow itself,
+  this only affects how it resolves the callback host.
+- No secrets are committed — `.env.example` documents required variables
+  with empty values; real values live only in `.env.local` (gitignored) and
+  Railway's environment variables.
+
 ## Getting started
 
 ```bash

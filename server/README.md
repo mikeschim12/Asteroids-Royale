@@ -73,11 +73,42 @@ default if unset) and run the site's own `npm run dev`.
   Railway service (Service → Variables) to the deployed `wss://...` address,
   then redeploy the site so Next.js inlines it at build time.
 
+## Hardening
+
+- `maxPayload` caps incoming WebSocket frames at 1KB — legitimate input
+  messages are a few dozen bytes, so anything near that size is either a bug
+  or someone trying to burn CPU/memory with oversized JSON. Connections that
+  send too large a frame get closed by `ws` automatically.
+- `MAX_PLAYERS` (currently 16, in `src/index.ts`) caps concurrent
+  connections — without it, an attacker opening many sockets could grow
+  `state.ships`/broadcast payloads unbounded and degrade the match for
+  everyone. New connections beyond the cap are closed immediately with
+  code 1013 ("try again later").
+- `ALLOWED_ORIGINS` (env var, comma-separated, e.g.
+  `https://royale.rocks,https://www.royale.rocks`) restricts which
+  `Origin` header a connecting browser is allowed to present. **Opt-in** —
+  unset/empty means allow any origin, so this can't silently start
+  rejecting connections in an environment that hasn't configured it. Note
+  this only stops casual browser-based embedding from other sites; a raw
+  (non-browser) WebSocket client can send any Origin it wants, so it's not
+  a substitute for real auth.
+- `process.on("uncaughtException"/"unhandledRejection")` keep the process
+  (and every in-progress match, since state is all in memory) alive if one
+  connection triggers something unexpected, instead of one bad message
+  taking the whole server down.
+- The player name from the `?name=` query param is stripped of control
+  characters and capped at 16 chars before being stored/broadcast.
+
 ## Known limitations (fine for now, worth knowing)
 
 - No matchmaking/rooms — everyone who connects joins the same single arena.
 - No reconnection token — a dropped connection means rejoining as a new ship
   (the client auto-reconnects the socket, but you lose your old ship's
   progress in that match).
-- No auth/anti-cheat — inputs are trusted as sent. Fine for a casual
-  prototype, not fine if this becomes a public competitive product.
+- No auth/anti-cheat — inputs (rotate/thrust/fire) are trusted as sent, so a
+  modified client could in principle send impossible input combinations.
+  There's no position/velocity report from the client though — the server
+  computes all of that itself from trusted physics constants — so this is
+  limited to "always firing/thrusting," not teleporting or god-mode. Fine
+  for a casual prototype, not fine if this becomes a public competitive
+  product with real stakes.

@@ -8,6 +8,18 @@ const ARENA_HEIGHT = 900;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 16;
+// Legitimate input messages are a handful of bytes; anything near this size
+// is either a bug or someone trying to burn CPU/memory on JSON.parse.
+const MAX_MESSAGE_BYTES = 1024;
+// Comma-separated list of allowed Origin header values, e.g.
+// "https://royale.rocks,https://www.royale.rocks". Unset/empty means
+// allow any origin -- opt-in so this can't silently start rejecting
+// connections in an environment that hasn't configured it.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 
 const PLAYER_COLORS = ["#ff5d5d", "#5da8ff", "#ffe45d", "#c65dff", "#5dffb0", "#ff9d4d", "#5dffff", "#ff5dc6", "#7fffd4"];
 
@@ -37,18 +49,36 @@ function resetRound() {
   state = createInitialGameState(ARENA_WIDTH, ARENA_HEIGHT, ships);
 }
 
-const wss = new WebSocketServer({ port: PORT });
+const wss = new WebSocketServer({
+  port: PORT,
+  maxPayload: MAX_MESSAGE_BYTES,
+  verifyClient: (info, cb) => {
+    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(info.origin)) {
+      cb(true);
+    } else {
+      cb(false, 403, "Forbidden origin");
+    }
+  },
+});
 
 function nameFromRequestUrl(url: string | undefined, fallback: string): string {
   try {
     const requested = new URL(url ?? "", "http://localhost").searchParams.get("name")?.trim();
-    return requested ? requested.slice(0, 16) : fallback;
+    // Strip control/formatting characters -- defense in depth against
+    // anything downstream (logs, future UI) that might not expect them.
+    const cleaned = requested?.replace(/[\x00-\x1f\x7f]/g, "");
+    return cleaned ? cleaned.slice(0, 16) : fallback;
   } catch {
     return fallback;
   }
 }
 
 wss.on("connection", (ws, req) => {
+  if (sockets.size >= MAX_PLAYERS) {
+    ws.close(1013, "Server full");
+    return;
+  }
+
   const shipId = nextShipId++;
   const name = nameFromRequestUrl(req.url, `Player ${shipId + 1}`);
   const meta: PlayerMeta = { name, color: PLAYER_COLORS[shipId % PLAYER_COLORS.length] };
@@ -135,3 +165,13 @@ setInterval(() => {
 }, DT * 1000);
 
 console.log(`Asteroids Royale multiplayer server listening on ws://localhost:${PORT}`);
+
+// This process holds every active match's state in memory -- one uncaught
+// exception (e.g. from a malformed message we didn't anticipate) shouldn't
+// take the whole server, and everyone's match, down with it.
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception (server staying up):", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled rejection (server staying up):", err);
+});
