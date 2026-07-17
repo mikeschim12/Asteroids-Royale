@@ -2,14 +2,20 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { createShip, Ship } from "../../src/game/entities";
 import { GameState, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos, checkWinCondition } from "../../src/game/simulation";
+import { computeBotIntent } from "../../src/game/bot";
 
 const PORT = Number(process.env.PORT) || 8080;
 const ARENA_WIDTH = 1600;
 const ARENA_HEIGHT = 900;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
-const MIN_PLAYERS = 2;
+const MIN_PLAYERS = 1;
 const MAX_PLAYERS = 16;
+// Rounds start with at least this many ships -- bots fill any empty seats
+// so a lone player doesn't have to wait for a second human to show up.
+const BOT_FILL_TARGET = 4;
+const BOT_DIFFICULTY_MULTIPLIER = 1;
+const BOT_NAMES = ["Nova", "Rango", "Vex", "Talon", "Pixel", "Rook", "Zephyr", "Comet"];
 // How long a disconnected player's ship stays in the match, controllable
 // again if they reconnect with their token, before it's removed for good.
 const RECONNECT_GRACE_MS = 15000;
@@ -55,6 +61,23 @@ function resetRound() {
   for (const [id, meta] of playerMeta) {
     ships.push(createShip(id, randomSpawnPos(ARENA_WIDTH, ARENA_HEIGHT), { name: meta.name, color: meta.color }));
   }
+
+  // Fill empty seats with bots so a lone player isn't stuck waiting for a
+  // second human -- bot ids are negative to never collide with real ship
+  // ids, and only exist for this round (not tracked in playerMeta/sockets).
+  const botsNeeded = Math.max(0, BOT_FILL_TARGET - ships.length);
+  for (let i = 0; i < botsNeeded; i++) {
+    const botId = -(i + 1);
+    const color = PLAYER_COLORS[(ships.length + i) % PLAYER_COLORS.length];
+    ships.push(
+      createShip(botId, randomSpawnPos(ARENA_WIDTH, ARENA_HEIGHT), {
+        isBot: true,
+        name: BOT_NAMES[i % BOT_NAMES.length],
+        color,
+      })
+    );
+  }
+
   state = createInitialGameState(ARENA_WIDTH, ARENA_HEIGHT, ships);
 }
 
@@ -202,7 +225,14 @@ setInterval(() => {
     const tickIntents = new Map<number, ShipIntent>();
     for (const ship of state.ships) {
       if (!ship.alive) continue;
-      tickIntents.set(ship.id, intents.get(ship.id) ?? { rotateLeft: false, rotateRight: false, thrust: false, fire: false });
+      if (ship.isBot) {
+        tickIntents.set(
+          ship.id,
+          computeBotIntent(ship, state.ships, state.asteroids, state.bullets, state.pickups, state.zone, BOT_DIFFICULTY_MULTIPLIER)
+        );
+      } else {
+        tickIntents.set(ship.id, intents.get(ship.id) ?? NEUTRAL_INTENT);
+      }
     }
     events = stepSimulation(state, tickIntents, DT);
   }

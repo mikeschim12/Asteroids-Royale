@@ -19,7 +19,10 @@ code to maintain.
   hits, pickups) to every connected client as JSON.
 - A match auto-restarts a couple of seconds after it ends, or drops back to
   "waiting" if too few players remain.
-- No bots fill empty slots yet — this is pure human-vs-human for now.
+- Rounds start with at least 4 ships — bots (reusing the same AI as local
+  play) fill any empty seats so a lone player doesn't have to wait for
+  three more humans to show up. Bots are round-scoped only (not tracked as
+  connections) and aren't backfilled mid-round if a human leaves.
 
 This process must stay running continuously (it holds all game state in
 memory) — it is **not** a serverless/request-response service like the rest
@@ -101,7 +104,8 @@ default if unset) and run the site's own `npm run dev`.
 
 ## Known limitations (fine for now, worth knowing)
 
-- No matchmaking/rooms — everyone who connects joins the same single arena.
+- No matchmaking/rooms — everyone who connects joins the same single arena
+  (alongside any bots filling out that round).
 - A dropped connection has a 15s grace window to reconnect (the client's
   existing auto-reconnect resumes the same ship via a token from the
   `welcome` message) before the ship is removed from the match for good.
