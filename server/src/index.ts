@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createShip, Ship } from "../../src/game/entities";
 import { GameState, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos, checkWinCondition } from "../../src/game/simulation";
 import { computeBotIntent } from "../../src/game/bot";
+import { signPayload, verifyPayload } from "../../src/lib/shared-secret";
 
 const PORT = Number(process.env.PORT) || 8080;
 const ARENA_WIDTH = 1600;
@@ -33,10 +34,19 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")
 
 const PLAYER_COLORS = ["#ff5d5d", "#5da8ff", "#ffe45d", "#c65dff", "#5dffb0", "#ff9d4d", "#5dffff", "#ff5dc6", "#7fffd4"];
 
+// Shared with the site (see src/app/api/multiplayer/token and
+// src/app/api/scores/submit) so a signed-in browser can prove its identity
+// here, and this server can report final scores back authoritatively.
+// Both unset (default) means: online play works, scores just aren't recorded.
+const MULTIPLAYER_SHARED_SECRET = process.env.MULTIPLAYER_SHARED_SECRET;
+const SCORES_SUBMIT_URL = process.env.SCORES_SUBMIT_URL;
+
 interface PlayerMeta {
   name: string;
   color: string;
   token: string;
+  /** Signed-in account id, if the connecting browser proved one via ?playToken=. */
+  userId?: string;
 }
 
 const NEUTRAL_INTENT: ShipIntent = { rotateLeft: false, rotateRight: false, thrust: false, fire: false };
@@ -55,8 +65,34 @@ function makeWaitingState(): GameState {
 }
 
 let state: GameState = makeWaitingState();
+let roundScoresSubmitted = false;
+
+/**
+ * Reports final scores for signed-in players once a round ends, to
+ * src/app/api/scores/submit (the site's own API, a separate Railway
+ * service -- see server/README.md). Best-effort: no secret/endpoint
+ * configured, or the request fails, just means this round's scores don't
+ * show up on the leaderboard -- online play itself is unaffected.
+ */
+function maybeSubmitScores() {
+  if (state.scene !== "gameover" || roundScoresSubmitted) return;
+  roundScoresSubmitted = true;
+  if (!MULTIPLAYER_SHARED_SECRET || !SCORES_SUBMIT_URL) return;
+
+  const results = state.ships
+    .filter((s) => !s.isBot)
+    .map((s) => ({ userId: playerMeta.get(s.id)?.userId, name: s.name, score: s.score }))
+    .filter((r): r is { userId: string; name: string; score: number } => !!r.userId);
+  if (results.length === 0) return;
+
+  const token = signPayload({ results }, MULTIPLAYER_SHARED_SECRET, 30);
+  fetch(SCORES_SUBMIT_URL, { method: "POST", body: token }).catch((err) => {
+    console.error("Failed to submit scores:", err);
+  });
+}
 
 function resetRound() {
+  roundScoresSubmitted = false;
   const ships: Ship[] = [];
   for (const [id, meta] of playerMeta) {
     ships.push(createShip(id, randomSpawnPos(ARENA_WIDTH, ARENA_HEIGHT), { name: meta.name, color: meta.color }));
@@ -106,13 +142,18 @@ function nameFromRequestUrl(url: string | undefined, fallback: string): string {
 }
 
 wss.on("connection", (ws, req) => {
-  const requestedToken = (() => {
+  const params = (() => {
     try {
-      return new URL(req.url ?? "", "http://localhost").searchParams.get("token");
+      return new URL(req.url ?? "", "http://localhost").searchParams;
     } catch {
-      return null;
+      return new URLSearchParams();
     }
   })();
+  const requestedToken = params.get("token");
+  const userId =
+    MULTIPLAYER_SHARED_SECRET && params.get("playToken")
+      ? verifyPayload<{ sub: string }>(params.get("playToken")!, MULTIPLAYER_SHARED_SECRET)?.sub
+      : undefined;
   const reconnectShipId = requestedToken ? tokenToShipId.get(requestedToken) : undefined;
   const pending = reconnectShipId !== undefined ? pendingDisconnects.get(reconnectShipId) : undefined;
 
@@ -133,7 +174,7 @@ wss.on("connection", (ws, req) => {
     shipId = nextShipId++;
     const name = nameFromRequestUrl(req.url, `Player ${shipId + 1}`);
     const token = randomUUID();
-    meta = { name, color: PLAYER_COLORS[shipId % PLAYER_COLORS.length], token };
+    meta = { name, color: PLAYER_COLORS[shipId % PLAYER_COLORS.length], token, userId };
     playerMeta.set(shipId, meta);
     tokenToShipId.set(token, shipId);
     intents.set(shipId, { ...NEUTRAL_INTENT });
@@ -188,6 +229,7 @@ wss.on("connection", (ws, req) => {
       if (idx !== -1) {
         state.ships.splice(idx, 1);
         checkWinCondition(state);
+        maybeSubmitScores();
       }
     }, RECONNECT_GRACE_MS);
     pendingDisconnects.set(shipId, timer);
@@ -235,6 +277,7 @@ setInterval(() => {
       }
     }
     events = stepSimulation(state, tickIntents, DT);
+    maybeSubmitScores();
   }
 
   broadcast(events);

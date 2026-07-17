@@ -71,6 +71,9 @@ export default function RootLayout({
               <Link href="/play" className="hover:text-accent">
                 Play
               </Link>
+              <Link href="/leaderboard" className="hover:text-accent">
+                Leaderboard
+              </Link>
             </nav>
             <Suspense fallback={<div className="h-7 w-16" />}>
               <AuthStatus />
