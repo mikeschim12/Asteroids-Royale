@@ -5,6 +5,7 @@ interface WelcomeMessage {
   yourShipId: number;
   worldWidth: number;
   worldHeight: number;
+  token: string;
 }
 
 interface StateMessage {
@@ -35,12 +36,17 @@ export class NetworkClient {
   private intentionalClose = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Set from the server's "welcome" message and reused on auto-reconnect so
+  // a dropped connection resumes the same ship instead of joining as a new
+  // one -- reset to null on a fresh, deliberate connect().
+  private token: string | null = null;
 
   connect(url: string, callbacks: NetworkClientCallbacks) {
     this.url = url;
     this.callbacks = callbacks;
     this.intentionalClose = false;
     this.reconnectAttempt = 0;
+    this.token = null;
     this.open();
   }
 
@@ -48,7 +54,10 @@ export class NetworkClient {
     const callbacks = this.callbacks;
     if (!callbacks) return;
 
-    const ws = new WebSocket(this.url);
+    const url = this.token
+      ? `${this.url}${this.url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.token)}`
+      : this.url;
+    const ws = new WebSocket(url);
     this.ws = ws;
 
     ws.onopen = () => {
@@ -62,6 +71,7 @@ export class NetworkClient {
         return;
       }
       if (msg.type === "welcome") {
+        this.token = msg.token;
         callbacks.onWelcome(msg.yourShipId, msg.worldWidth, msg.worldHeight);
       } else if (msg.type === "state") {
         callbacks.onState(msg.state, msg.events, msg.connectedCount);

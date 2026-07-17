@@ -102,9 +102,9 @@ default if unset) and run the site's own `npm run dev`.
 ## Known limitations (fine for now, worth knowing)
 
 - No matchmaking/rooms — everyone who connects joins the same single arena.
-- No reconnection token — a dropped connection means rejoining as a new ship
-  (the client auto-reconnects the socket, but you lose your old ship's
-  progress in that match).
+- A dropped connection has a 15s grace window to reconnect (the client's
+  existing auto-reconnect resumes the same ship via a token from the
+  `welcome` message) before the ship is removed from the match for good.
 - No auth/anti-cheat — inputs (rotate/thrust/fire) are trusted as sent, so a
   modified client could in principle send impossible input combinations.
   There's no position/velocity report from the client though — the server

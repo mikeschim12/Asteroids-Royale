@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { createShip, Ship } from "../../src/game/entities";
 import { GameState, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos, checkWinCondition } from "../../src/game/simulation";
@@ -9,6 +10,9 @@ const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 16;
+// How long a disconnected player's ship stays in the match, controllable
+// again if they reconnect with their token, before it's removed for good.
+const RECONNECT_GRACE_MS = 15000;
 // Legitimate input messages are a handful of bytes; anything near this size
 // is either a bug or someone trying to burn CPU/memory on JSON.parse.
 const MAX_MESSAGE_BYTES = 1024;
@@ -26,12 +30,17 @@ const PLAYER_COLORS = ["#ff5d5d", "#5da8ff", "#ffe45d", "#c65dff", "#5dffb0", "#
 interface PlayerMeta {
   name: string;
   color: string;
+  token: string;
 }
+
+const NEUTRAL_INTENT: ShipIntent = { rotateLeft: false, rotateRight: false, thrust: false, fire: false };
 
 let nextShipId = 0;
 const sockets = new Map<number, WebSocket>();
 const playerMeta = new Map<number, PlayerMeta>();
 const intents = new Map<number, ShipIntent>();
+const tokenToShipId = new Map<string, number>();
+const pendingDisconnects = new Map<number, ReturnType<typeof setTimeout>>();
 
 function makeWaitingState(): GameState {
   const s = createInitialGameState(ARENA_WIDTH, ARENA_HEIGHT, []);
@@ -74,23 +83,49 @@ function nameFromRequestUrl(url: string | undefined, fallback: string): string {
 }
 
 wss.on("connection", (ws, req) => {
-  if (sockets.size >= MAX_PLAYERS) {
-    ws.close(1013, "Server full");
-    return;
+  const requestedToken = (() => {
+    try {
+      return new URL(req.url ?? "", "http://localhost").searchParams.get("token");
+    } catch {
+      return null;
+    }
+  })();
+  const reconnectShipId = requestedToken ? tokenToShipId.get(requestedToken) : undefined;
+  const pending = reconnectShipId !== undefined ? pendingDisconnects.get(reconnectShipId) : undefined;
+
+  let shipId: number;
+  let meta: PlayerMeta;
+
+  if (reconnectShipId !== undefined && pending !== undefined) {
+    // Reconnecting within the grace window -- resume the same ship.
+    clearTimeout(pending);
+    pendingDisconnects.delete(reconnectShipId);
+    shipId = reconnectShipId;
+    meta = playerMeta.get(shipId)!;
+  } else {
+    if (sockets.size >= MAX_PLAYERS) {
+      ws.close(1013, "Server full");
+      return;
+    }
+    shipId = nextShipId++;
+    const name = nameFromRequestUrl(req.url, `Player ${shipId + 1}`);
+    const token = randomUUID();
+    meta = { name, color: PLAYER_COLORS[shipId % PLAYER_COLORS.length], token };
+    playerMeta.set(shipId, meta);
+    tokenToShipId.set(token, shipId);
+    intents.set(shipId, { ...NEUTRAL_INTENT });
   }
 
-  const shipId = nextShipId++;
-  const name = nameFromRequestUrl(req.url, `Player ${shipId + 1}`);
-  const meta: PlayerMeta = { name, color: PLAYER_COLORS[shipId % PLAYER_COLORS.length] };
-  playerMeta.set(shipId, meta);
   sockets.set(shipId, ws);
-  intents.set(shipId, { rotateLeft: false, rotateRight: false, thrust: false, fire: false });
 
-  ws.send(JSON.stringify({ type: "welcome", yourShipId: shipId, worldWidth: ARENA_WIDTH, worldHeight: ARENA_HEIGHT }));
+  ws.send(
+    JSON.stringify({ type: "welcome", yourShipId: shipId, worldWidth: ARENA_WIDTH, worldHeight: ARENA_HEIGHT, token: meta.token })
+  );
 
-  // Join mid-round if a match is already underway; otherwise the tick loop
-  // will start a fresh round once enough players are connected.
-  if (state.scene === "playing") {
+  // Join mid-round if a match is already underway and this ship isn't
+  // already in it (e.g. a reconnect within the grace window); otherwise the
+  // tick loop will start a fresh round once enough players are connected.
+  if (state.scene === "playing" && !state.ships.some((s) => s.id === shipId)) {
     state.ships.push(createShip(shipId, randomSpawnPos(ARENA_WIDTH, ARENA_HEIGHT), { name: meta.name, color: meta.color }));
   }
 
@@ -114,14 +149,25 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
+    // Only tear down if this socket is still the one on record for the
+    // ship -- a reconnect may have already replaced it.
+    if (sockets.get(shipId) !== ws) return;
     sockets.delete(shipId);
-    playerMeta.delete(shipId);
-    intents.delete(shipId);
-    const idx = state.ships.findIndex((s) => s.id === shipId);
-    if (idx !== -1) {
-      state.ships.splice(idx, 1);
-      checkWinCondition(state);
-    }
+    // Stop the ship from coasting on its last input while disconnected.
+    intents.set(shipId, { ...NEUTRAL_INTENT });
+
+    const timer = setTimeout(() => {
+      pendingDisconnects.delete(shipId);
+      tokenToShipId.delete(meta.token);
+      playerMeta.delete(shipId);
+      intents.delete(shipId);
+      const idx = state.ships.findIndex((s) => s.id === shipId);
+      if (idx !== -1) {
+        state.ships.splice(idx, 1);
+        checkWinCondition(state);
+      }
+    }, RECONNECT_GRACE_MS);
+    pendingDisconnects.set(shipId, timer);
   });
 
   ws.on("error", () => {
