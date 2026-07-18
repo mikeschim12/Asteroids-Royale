@@ -99,6 +99,29 @@ export class NameEntry {
 
     this.updateLabel();
     onChange(this.username);
+
+    if (!this.username) this.prefillFromGoogleAccount(onChange);
+  }
+
+  // Best-effort: if this browser has never had a name set (fresh
+  // browser/device, or storage was cleared) and the player is signed in,
+  // default the NAME widget to their Google account name instead of
+  // "Anonymous" -- still freely editable afterward via the widget itself.
+  private async prefillFromGoogleAccount(onChange: (name: string) => void) {
+    try {
+      const res = await fetch("/api/auth/session");
+      if (!res.ok) return;
+      const session = (await res.json()) as { user?: { name?: string } };
+      const name = session.user?.name?.trim().slice(0, MAX_LENGTH);
+      // Don't clobber a name the player typed while this was in flight.
+      if (!name || this.username) return;
+      this.username = name;
+      saveUsername(name);
+      this.updateLabel();
+      onChange(name);
+    } catch {
+      // Signed out, offline, etc -- keep the "Anonymous" default.
+    }
   }
 
   private startEditing() {

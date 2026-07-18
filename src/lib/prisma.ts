@@ -13,8 +13,22 @@ function createClient(): PrismaClient {
   return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 }
 
-export const prisma = globalForPrisma.prisma ?? createClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+function getClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createClient();
+  }
+  return globalForPrisma.prisma;
 }
+
+// A lazy proxy, not a real client constructed at module load -- Next.js
+// imports every route module (this one transitively, via
+// src/app/api/scores/submit and src/app/leaderboard) while collecting build
+// metadata, which would otherwise throw the "DATABASE_URL is not set" error
+// above at *build* time even in environments that don't need the
+// leaderboard at all. Deferring construction to first actual use (a real
+// request) keeps that opt-in.
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getClient(), prop, receiver);
+  },
+});
