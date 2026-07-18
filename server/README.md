@@ -12,8 +12,8 @@ code to maintain.
   of any player's screen size — the client scales/letterboxes this to fit
   whatever viewport it has.
 - Players connect anytime. If a match is already running they're added to it
-  directly; otherwise they sit in a waiting state until at least 2 players are
-  connected.
+  directly; otherwise they sit in a waiting state until at least 1 player is
+  connected (bots fill the rest, see below).
 - Ticks the simulation at a fixed rate (see `TICK_RATE` in `src/index.ts`) and
   broadcasts the full world state + a list of cosmetic events (explosions,
   hits, pickups) to every connected client as JSON.
@@ -75,6 +75,11 @@ default if unset) and run the site's own `npm run dev`.
 - Once deployed, set `NEXT_PUBLIC_MULTIPLAYER_URL` on the **main site's**
   Railway service (Service → Variables) to the deployed `wss://...` address,
   then redeploy the site so Next.js inlines it at build time.
+- For the leaderboard (see the root README's Leaderboard section) to work,
+  also set `MULTIPLAYER_SHARED_SECRET` (matching the site's) and
+  `SCORES_SUBMIT_URL` (`https://<site>/api/scores/submit`) on this service.
+  Both optional — without them online play still works, matches just
+  aren't scored.
 
 ## Hardening
 

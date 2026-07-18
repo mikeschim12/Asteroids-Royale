@@ -1,0 +1,19 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Score {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  score     Int
+  createdAt DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+}

@@ -65,10 +65,12 @@ prompt — it doesn't break anything, it just has nothing to talk to yet.
 
 Sign-in is optional — the game at `/play` is public. Auth (Google, via
 [Auth.js](https://authjs.dev)) exists so a signed-in identity is available
-for future features like saved scores and a leaderboard; nothing currently
-requires being signed in.
+for the leaderboard (see below) and other future features; nothing else
+currently requires being signed in.
 
-- `src/auth.ts` — Auth.js config (Google provider).
+- `src/auth.ts` — Auth.js config (Google provider). The `session` callback
+  puts the account's stable id (JWT `sub`) on `session.user.id`, since the
+  default session shape only has name/email/image.
 - `src/app/api/auth/[...nextauth]/route.ts` — auth route handler.
 - `src/app/signin/page.tsx` — sign-in page.
 - `src/components/AuthStatus.tsx` — header sign in/out UI (server component).
@@ -86,6 +88,47 @@ Create the Google OAuth client at the
 with authorized redirect URIs for both:
 - `http://localhost:3000/api/auth/callback/google`
 - `https://royale.rocks/api/auth/callback/google`
+
+## Leaderboard
+
+`/leaderboard` shows each signed-in account's best score from an online
+PvP match (local vs-bots scores aren't recorded — only the multiplayer
+server, not the browser, is trusted to report a score, since a modified
+client could otherwise self-report anything).
+
+- `prisma/schema.prisma` — one `Score` model (userId, name, score,
+  createdAt). Requires a Postgres `DATABASE_URL`; the app won't start
+  without one configured (see `src/lib/prisma.ts`). Uses Prisma 7's driver
+  adapters (`@prisma/adapter-pg`) — the connection string lives in
+  `DATABASE_URL`/`prisma.config.ts` for the CLI, not in `schema.prisma`
+  itself, and the generated client goes to `src/generated/prisma`
+  (gitignored, rebuilt by the `postinstall` script / `npm run db:push`).
+- `src/lib/shared-secret.ts` — a small HMAC sign/verify helper with no
+  Next.js-specific imports, shared between the site and `server/` the same
+  way `src/game/*` already is (see server/README.md). Backs both pieces
+  below.
+- `src/app/api/multiplayer/token` — mints a short-lived token proving a
+  signed-in identity, fetched by the client (`src/game/engine.ts`) before
+  connecting to online mode and sent as `?playToken=`. Returns
+  `{ token: null }` if not signed in or `MULTIPLAYER_SHARED_SECRET` isn't
+  set — online play still works, the match just won't be scored.
+- `server/src/index.ts` verifies that token to attribute a ship to an
+  account, then POSTs final scores to `src/app/api/scores/submit` (signed
+  with the same shared secret) once a round ends.
+
+Required env vars (in addition to the Auth ones above), set on **both**
+the site's and the multiplayer server's Railway services:
+
+```bash
+DATABASE_URL=               # Postgres connection string (site only)
+MULTIPLAYER_SHARED_SECRET=  # any long random string, e.g. `openssl rand -hex 32`
+SCORES_SUBMIT_URL=          # https://<site>/api/scores/submit (server only)
+```
+
+To provision the schema against a real database: `DATABASE_URL=... npm
+run db:push` (uses `prisma db push`, no separate migration files —
+fine for this project's size; switch to `prisma migrate` if that ever
+matters).
 
 ## Security
 
@@ -132,6 +175,8 @@ Set these as Railway environment variables (Service → Variables):
 AUTH_SECRET=      # npx auth secret
 AUTH_GOOGLE_ID=
 AUTH_GOOGLE_SECRET=
+DATABASE_URL=     # from the Postgres plugin, for the leaderboard -- see below
+MULTIPLAYER_SHARED_SECRET=  # also set on the multiplayer server's service, see below
 ```
 
 ### Custom domain (royale.rocks, DNS on Cloudflare)

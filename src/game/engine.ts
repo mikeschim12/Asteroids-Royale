@@ -129,12 +129,29 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     uiScene = "playing";
   }
 
-  function connectOnline() {
+  async function connectOnline() {
     if (onlineStatus === "connecting" || onlineStatus === "connected") return;
     onlineStatus = "connecting";
     particles = [];
+
+    // Best-effort: if we're signed in, this proves it to the multiplayer
+    // server so a finished match's score can be attributed to the account
+    // (see /api/multiplayer/token, /api/scores/submit). Not signed in, or
+    // the request fails for any reason -- just play unscored, same as
+    // today.
+    let playToken: string | null = null;
+    try {
+      const res = await fetch("/api/multiplayer/token", { method: "POST" });
+      if (res.ok) playToken = ((await res.json()) as { token: string | null }).token;
+    } catch {
+      // Offline/blocked -- fine, online play itself doesn't need this.
+    }
+    if (mode !== "online") return; // user switched modes while we were fetching
+
     netClient = new NetworkClient();
-    const joinUrl = `${MULTIPLAYER_URL}${MULTIPLAYER_URL.includes("?") ? "&" : "?"}name=${encodeURIComponent(username)}`;
+    const joinParams = new URLSearchParams({ name: username });
+    if (playToken) joinParams.set("playToken", playToken);
+    const joinUrl = `${MULTIPLAYER_URL}${MULTIPLAYER_URL.includes("?") ? "&" : "?"}${joinParams.toString()}`;
     netClient.connect(joinUrl, {
       onWelcome(yourShipId, worldWidth, worldHeight) {
         onlineYourId = yourShipId;
