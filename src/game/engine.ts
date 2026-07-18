@@ -42,7 +42,11 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
 
   let selectedBotCount = 5;
   let selectedDifficultyIndex = 1;
-  let mode: "local" | "online" = "local";
+  // Online is the front-and-center default now that a solo player gets an
+  // instant bot-filled match either way (see server/README.md) -- local
+  // vs-bots is still fully working, just tucked behind the small link on
+  // the start screen (and the M key) instead of a co-equal toggle.
+  let mode: "local" | "online" = "online";
 
   // --- Local (single-device, vs bots) mode state ---
   let uiScene: Scene = "start";
@@ -293,8 +297,12 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
   function updateOnline(dt: number) {
     if (onlineStatus === "idle") {
       if (input.fire) {
-        sound.resumeAudio();
-        connectOnline();
+        if (!username) {
+          nameEntry.requireName();
+        } else {
+          sound.resumeAudio();
+          connectOnline();
+        }
       }
       return;
     }
@@ -462,38 +470,49 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
     ctx.font = uiFont(canvas, 20);
     ctx.fillText("WASD / Arrows to move, Space to fire", canvas.width / 2, canvas.height / 2 - 70);
 
-    ctx.font = uiFont(canvas, 24);
-    ctx.fillStyle = mode === "local" ? "#7fffd4" : "#888";
-    const localLabel = mode === "local" ? "> LOCAL (vs Bots) <" : "  LOCAL (vs Bots)  ";
-    ctx.fillText(localLabel, canvas.width / 2, canvas.height / 2 - 30);
-    ctx.fillStyle = mode === "online" ? "#7fffd4" : "#888";
-    const onlineLabel = mode === "online" ? "> ONLINE (PvP) <" : "  ONLINE (PvP)  ";
-    ctx.fillText(onlineLabel, canvas.width / 2, canvas.height / 2 - 2);
-    ctx.fillStyle = "#fff";
-    ctx.font = uiFont(canvas, 14);
-    ctx.fillText("Press M to switch mode", canvas.width / 2, canvas.height / 2 + 22);
-
-    if (mode === "local") {
-      ctx.font = uiFont(canvas, 22);
-      ctx.fillStyle = "#ffe45d";
-      ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 56);
-      ctx.fillStyle = "#5da8ff";
-      ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 84);
-      ctx.fillStyle = "#fff";
-      ctx.font = uiFont(canvas, 14);
-      ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 112);
-    } else {
+    if (mode === "online") {
+      ctx.font = uiFont(canvas, 28);
+      ctx.fillStyle = "#7fffd4";
+      ctx.fillText("ONLINE -- REAL-TIME PVP", canvas.width / 2, canvas.height / 2 - 22);
       ctx.font = uiFont(canvas, 16);
       ctx.fillStyle = "#fff";
-      ctx.fillText("Last one standing wins. Real opponents only.", canvas.width / 2, canvas.height / 2 + 60);
+      ctx.fillText("Last one standing wins. Real opponents only.", canvas.width / 2, canvas.height / 2 + 10);
+      ctx.font = uiFont(canvas, 13);
+      ctx.fillStyle = username ? "#888" : "#ff9d4d";
+      ctx.fillText(
+        username ? "Click NAME in the corner to set the name opponents see" : "Set a NAME in the corner first -- required to play online",
+        canvas.width / 2,
+        canvas.height / 2 + 34
+      );
+    } else {
+      ctx.font = uiFont(canvas, 28);
+      ctx.fillStyle = "#ffe45d";
+      ctx.fillText("LOCAL -- PRACTICE VS BOTS", canvas.width / 2, canvas.height / 2 - 22);
+      ctx.font = uiFont(canvas, 22);
+      ctx.fillStyle = "#ffe45d";
+      ctx.fillText(`< Bots: ${selectedBotCount} >`, canvas.width / 2, canvas.height / 2 + 12);
+      ctx.fillStyle = "#5da8ff";
+      ctx.fillText(`^ Difficulty: ${DIFFICULTIES[selectedDifficultyIndex].label} v`, canvas.width / 2, canvas.height / 2 + 40);
       ctx.font = uiFont(canvas, 13);
       ctx.fillStyle = "#888";
-      ctx.fillText("Click NAME in the corner to set the name opponents see", canvas.width / 2, canvas.height / 2 + 84);
+      ctx.fillText("Left/Right: bot count   Up/Down: difficulty", canvas.width / 2, canvas.height / 2 + 64);
     }
 
     ctx.font = uiFont(canvas, 20);
     ctx.fillStyle = "#fff";
-    ctx.fillText("Press SPACE to start", canvas.width / 2, canvas.height / 2 + 150);
+    ctx.fillText(
+      mode === "online" && !username ? "Press SPACE to set a name" : "Press SPACE to start",
+      canvas.width / 2,
+      canvas.height / 2 + 104
+    );
+
+    ctx.font = uiFont(canvas, 13);
+    ctx.fillStyle = "#666";
+    ctx.fillText(
+      mode === "online" ? "Practice offline vs bots -- press M" : "Back to online PvP -- press M",
+      canvas.width / 2,
+      canvas.height / 2 + 134
+    );
     ctx.textAlign = "left";
   }
 
@@ -516,10 +535,10 @@ export function startGame(canvas: HTMLCanvasElement): StopGame {
       ctx.font = uiFont(canvas, 16);
       ctx.fillText("Press SPACE to retry, or M for local play", canvas.width / 2, canvas.height / 2 + 36);
     } else if (onlineState?.scene === "waiting") {
-      ctx.fillText("WAITING FOR OPPONENTS", canvas.width / 2, canvas.height / 2);
+      ctx.fillText("MATCH STARTING...", canvas.width / 2, canvas.height / 2);
       ctx.fillStyle = "#fff";
       ctx.font = uiFont(canvas, 16);
-      ctx.fillText(`${onlineConnectedCount} connected -- need at least 2 to start`, canvas.width / 2, canvas.height / 2 + 36);
+      ctx.fillText(`${onlineConnectedCount} player(s) connected`, canvas.width / 2, canvas.height / 2 + 36);
     }
     ctx.textAlign = "left";
   }
