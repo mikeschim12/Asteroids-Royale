@@ -1,10 +1,11 @@
+import { MAX_NAME_LENGTH, sanitizeName } from "../lib/nameFilter";
+
 const STORAGE_KEY = "asteroids-royale:username";
-const MAX_LENGTH = 16;
 
 export function loadUsername(): string {
   if (typeof window === "undefined") return "";
   try {
-    return (window.localStorage.getItem(STORAGE_KEY) ?? "").slice(0, MAX_LENGTH);
+    return sanitizeName(window.localStorage.getItem(STORAGE_KEY) ?? "");
   } catch {
     return "";
   }
@@ -62,7 +63,7 @@ export class NameEntry {
 
     this.input = document.createElement("input");
     this.input.type = "text";
-    this.input.maxLength = MAX_LENGTH;
+    this.input.maxLength = MAX_NAME_LENGTH;
     this.input.placeholder = "Your name";
     Object.assign(this.input.style, {
       display: "none",
@@ -77,11 +78,21 @@ export class NameEntry {
     });
     this.root.appendChild(this.input);
 
-    const commit = () => {
-      const next = this.input.value.trim().slice(0, MAX_LENGTH);
-      this.username = next;
-      saveUsername(next);
-      onChange(next);
+    // On Enter, a rejected name (blocked word, or nothing left after
+    // stripping) keeps the editor open with a hint instead of silently
+    // reverting to "Anonymous" -- the player typed something and should
+    // see why it didn't take. Losing focus (blur) just commits whatever's
+    // valid, same as before, so clicking away doesn't trap the input.
+    const commit = (keepOpenIfRejected: boolean) => {
+      const cleaned = sanitizeName(this.input.value);
+      if (!cleaned && this.input.value.trim() && keepOpenIfRejected) {
+        this.input.value = "";
+        this.input.placeholder = "Try a different name";
+        return;
+      }
+      this.username = cleaned;
+      saveUsername(cleaned);
+      onChange(cleaned);
       this.stopEditing();
     };
 
@@ -91,11 +102,11 @@ export class NameEntry {
     // actions (Space to fire, M to switch mode, WASD to move, etc).
     this.input.addEventListener("keydown", (e) => {
       e.stopPropagation();
-      if (e.key === "Enter") commit();
+      if (e.key === "Enter") commit(true);
       else if (e.key === "Escape") this.stopEditing();
     });
     this.input.addEventListener("keyup", (e) => e.stopPropagation());
-    this.input.addEventListener("blur", commit);
+    this.input.addEventListener("blur", () => commit(false));
 
     this.updateLabel();
     onChange(this.username);
@@ -113,6 +124,7 @@ export class NameEntry {
 
   private startEditing() {
     this.input.value = this.username;
+    this.input.placeholder = "Your name";
     this.label.style.display = "none";
     this.input.style.display = "block";
     this.input.focus();
