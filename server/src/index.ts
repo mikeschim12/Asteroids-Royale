@@ -4,6 +4,7 @@ import { createShip, Ship } from "../../src/game/entities";
 import { GameState, ShipIntent, SimEvent, createInitialGameState, stepSimulation, randomSpawnPos, checkWinCondition } from "../../src/game/simulation";
 import { computeBotIntent } from "../../src/game/bot";
 import { signPayload, verifyPayload } from "../../src/lib/shared-secret";
+import { sanitizeName } from "../../src/lib/nameFilter";
 
 const PORT = Number(process.env.PORT) || 8080;
 const ARENA_WIDTH = 1600;
@@ -131,11 +132,13 @@ const wss = new WebSocketServer({
 
 function nameFromRequestUrl(url: string | undefined, fallback: string): string {
   try {
-    const requested = new URL(url ?? "", "http://localhost").searchParams.get("name")?.trim();
-    // Strip control/formatting characters -- defense in depth against
-    // anything downstream (logs, future UI) that might not expect them.
-    const cleaned = requested?.replace(/[\x00-\x1f\x7f]/g, "");
-    return cleaned ? cleaned.slice(0, 16) : fallback;
+    const requested = new URL(url ?? "", "http://localhost").searchParams.get("name") ?? "";
+    // The real enforcement point: a raw (non-browser) WebSocket client can
+    // send any ?name= it wants, bypassing the client-side check in
+    // nameEntry.ts entirely -- this is what actually stops it from landing
+    // on every other player's screen.
+    const cleaned = sanitizeName(requested);
+    return cleaned || fallback;
   } catch {
     return fallback;
   }
