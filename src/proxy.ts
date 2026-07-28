@@ -97,6 +97,9 @@ export function proxy(request: NextRequest) {
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   response.headers.set("X-Frame-Options", "DENY");
+  // 2 years, includeSubDomains, preload -- royale.rocks is HTTPS-only via
+  // Railway/Cloudflare, so there's no plain-HTTP fallback to preserve.
+  response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   return response;
 }
 
